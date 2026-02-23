@@ -6,10 +6,10 @@ const rawChainId = process.env.NEXT_PUBLIC_CHAIN_ID
 const rawRpcUrl = process.env.NEXT_PUBLIC_RPC_URL
 
 if (isProd && !rawChainId) {
-  throw new Error('[Prophit] NEXT_PUBLIC_CHAIN_ID is required in production')
+  console.warn('[Prophit] NEXT_PUBLIC_CHAIN_ID is not set — defaulting to 31337')
 }
 if (isProd && !rawRpcUrl) {
-  throw new Error('[Prophit] NEXT_PUBLIC_RPC_URL is required in production')
+  console.warn('[Prophit] NEXT_PUBLIC_RPC_URL is not set — defaulting to localhost')
 }
 
 const chainId = Number(rawChainId || '31337')
