@@ -1,4 +1,4 @@
-import type { PublicClient } from "viem";
+import type { PublicClient, WalletClient } from "viem";
 import type { ArbitOpportunity, Position, ClobPosition, ClobLeg, MarketMeta, ExecutionMode } from "../types.js";
 import type { VaultClient } from "./vault-client.js";
 import type { ClobClient, PlaceOrderParams, OrderStatus } from "../clob/types.js";
@@ -16,6 +16,51 @@ const isResolvedAbi = [
   },
 ] as const;
 
+const payoutDenominatorAbi = [
+  {
+    type: "function",
+    name: "payoutDenominator",
+    inputs: [{ name: "conditionId", type: "bytes32" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const redeemPositionsAbi = [
+  {
+    type: "function",
+    name: "redeemPositions",
+    inputs: [
+      { name: "collateralToken", type: "address" },
+      { name: "parentCollectionId", type: "bytes32" },
+      { name: "conditionId", type: "bytes32" },
+      { name: "indexSets", type: "uint256[]" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
+const balanceOfAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "id", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
+
+const CTF_ADDRESSES: Record<string, `0x${string}`> = {
+  probable: "0x364d05055614B506e2b9A287E4ac34167204cA83",
+  predict: "0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc",
+};
+
 interface ClobClients {
   probable?: ClobClient;
   predict?: ClobClient;
@@ -31,6 +76,7 @@ export class Executor {
   private publicClient: PublicClient;
   private clobClients: ClobClients;
   private metaResolvers: Map<string, MarketMetaResolver>;
+  private walletClient: WalletClient | null;
 
   constructor(
     vaultClient: VaultClient,
@@ -38,12 +84,14 @@ export class Executor {
     publicClient: PublicClient,
     clobClients?: ClobClients,
     metaResolvers?: Map<string, MarketMetaResolver>,
+    walletClient?: WalletClient,
   ) {
     this.vaultClient = vaultClient;
     this.config = config;
     this.publicClient = publicClient;
     this.clobClients = clobClients ?? {};
     this.metaResolvers = metaResolvers ?? new Map();
+    this.walletClient = walletClient ?? null;
   }
 
   async executeBest(opportunity: ArbitOpportunity, maxPositionSize: bigint): Promise<ClobPosition | void> {
@@ -485,6 +533,133 @@ export class Executor {
       } catch (err) {
         log.error("Failed to close position", {
           positionId: pos.positionId,
+          error: String(err),
+        });
+      }
+    }
+
+    return closed;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Close resolved (CLOB mode — CTF redemption)
+  // ---------------------------------------------------------------------------
+
+  async closeResolvedClob(positions: ClobPosition[]): Promise<number> {
+    let closed = 0;
+
+    for (const pos of positions) {
+      if (pos.status === "CLOSED" || pos.status === "EXPIRED") continue;
+      if (pos.status !== "FILLED") continue; // Only redeem filled positions
+
+      try {
+        // Get conditionId from market metadata
+        const metaA = this.metaResolvers.get(pos.legA.platform)?.getMarketMeta(pos.marketId);
+        const metaB = this.metaResolvers.get(pos.legB.platform)?.getMarketMeta(pos.marketId);
+
+        if (!metaA && !metaB) {
+          log.warn("Cannot resolve conditionId for CLOB redemption", { positionId: pos.id });
+          continue;
+        }
+
+        // Check resolution on both platforms
+        let resolved = false;
+        const conditionId = (metaA?.conditionId ?? metaB?.conditionId) as `0x${string}`;
+
+        for (const platform of [pos.legA.platform, pos.legB.platform]) {
+          const ctfAddress = CTF_ADDRESSES[platform.toLowerCase()];
+          if (!ctfAddress) continue;
+
+          try {
+            const denom = await this.publicClient.readContract({
+              address: ctfAddress,
+              abi: payoutDenominatorAbi,
+              functionName: "payoutDenominator",
+              args: [conditionId],
+            });
+            if (denom > 0n) {
+              resolved = true;
+              break;
+            }
+          } catch {
+            // May fail if conditionId differs between platforms
+          }
+        }
+
+        if (!resolved) continue;
+
+        log.info("CLOB position market resolved, attempting redemption", {
+          positionId: pos.id,
+          conditionId,
+        });
+
+        if (!this.walletClient) {
+          log.warn("Cannot redeem — no walletClient on executor");
+          continue;
+        }
+
+        const account = this.walletClient.account;
+        if (!account) continue;
+
+        // Redeem on each platform where we hold tokens
+        for (const leg of [pos.legA, pos.legB]) {
+          const ctfAddress = CTF_ADDRESSES[leg.platform.toLowerCase()];
+          if (!ctfAddress) continue;
+
+          // Check if we hold any tokens
+          const balance = await this.publicClient.readContract({
+            address: ctfAddress,
+            abi: balanceOfAbi,
+            functionName: "balanceOf",
+            args: [account.address, BigInt(leg.tokenId)],
+          });
+
+          if (balance === 0n) {
+            log.info("No tokens to redeem", { platform: leg.platform, tokenId: leg.tokenId });
+            continue;
+          }
+
+          // Determine indexSet from tokenId
+          // YES tokens have indexSet=1 (0b01), NO tokens have indexSet=2 (0b10)
+          const meta = this.metaResolvers.get(leg.platform)?.getMarketMeta(pos.marketId);
+          const isYes = meta ? leg.tokenId === meta.yesTokenId : true;
+          const indexSets = isYes ? [1n] : [2n];
+
+          try {
+            const hash = await this.walletClient.writeContract({
+              account,
+              address: ctfAddress,
+              abi: redeemPositionsAbi,
+              functionName: "redeemPositions",
+              args: [
+                BSC_USDT,
+                "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`,
+                conditionId,
+                indexSets,
+              ],
+              chain: this.walletClient.chain,
+            });
+            log.info("CTF tokens redeemed", {
+              platform: leg.platform,
+              tokenId: leg.tokenId,
+              txHash: hash,
+            });
+          } catch (err) {
+            log.error("CTF redemption failed", {
+              platform: leg.platform,
+              tokenId: leg.tokenId,
+              error: String(err),
+            });
+          }
+        }
+
+        pos.status = "CLOSED";
+        pos.closedAt = Date.now();
+        closed++;
+        log.info("CLOB position closed", { positionId: pos.id });
+      } catch (err) {
+        log.error("Error checking CLOB position resolution", {
+          positionId: pos.id,
           error: String(err),
         });
       }

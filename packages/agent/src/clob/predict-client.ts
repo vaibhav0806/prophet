@@ -37,6 +37,32 @@ const ERC20_ABI = [
   },
 ] as const;
 
+const ERC1155_SET_APPROVAL_ABI = [
+  {
+    type: "function",
+    name: "setApprovalForAll",
+    inputs: [
+      { name: "operator", type: "address" },
+      { name: "approved", type: "bool" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
+const ERC20_APPROVE_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
 // Well-known BSC addresses for Predict.fun
 const PREDICT_CTF_ADDRESS = "0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc" as `0x${string}`;
 const BSC_USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
@@ -93,7 +119,8 @@ export class PredictClobClient implements ClobClient {
       const body = await msgRes.text();
       throw new Error(`Predict auth/message failed (${msgRes.status}): ${body}`);
     }
-    const { message } = (await msgRes.json()) as { message: string };
+    const msgData = (await msgRes.json()) as { success: boolean; data: { message: string } };
+    const message = msgData.data.message;
 
     // Step 2: Sign the message
     const signature = await this.walletClient.signMessage({
@@ -102,21 +129,21 @@ export class PredictClobClient implements ClobClient {
     });
 
     // Step 3: POST login
-    const loginRes = await fetch(`${this.apiBase}/v1/auth/login`, {
+    const loginRes = await fetch(`${this.apiBase}/v1/auth`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": this.apiKey,
       },
-      body: JSON.stringify({ address: account.address, signature }),
+      body: JSON.stringify({ signer: account.address, message, signature }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!loginRes.ok) {
       const body = await loginRes.text();
       throw new Error(`Predict auth/login failed (${loginRes.status}): ${body}`);
     }
-    const { token } = (await loginRes.json()) as { token: string };
-    this.jwt = token;
+    const loginData = (await loginRes.json()) as { success?: boolean; data?: { token: string }; token?: string };
+    this.jwt = loginData.data?.token ?? loginData.token ?? null;
 
     log.info("Predict JWT authenticated", { address: account.address });
   }
@@ -286,24 +313,30 @@ export class PredictClobClient implements ClobClient {
     try {
       const jwt = await this.ensureAuth();
 
-      const res = await fetch(`${this.apiBase}/v1/orders/${orderId}`, {
-        method: "DELETE",
+      const body = JSON.stringify({ data: { ids: [orderId] } });
+
+      const res = await fetch(`${this.apiBase}/v1/orders/remove`, {
+        method: "POST",
         headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${jwt}`,
           "x-api-key": this.apiKey,
         },
+        body,
         signal: AbortSignal.timeout(10_000),
       });
 
       if (res.status === 401) {
         this.jwt = null;
         const newJwt = await this.ensureAuth();
-        const retry = await fetch(`${this.apiBase}/v1/orders/${orderId}`, {
-          method: "DELETE",
+        const retry = await fetch(`${this.apiBase}/v1/orders/remove`, {
+          method: "POST",
           headers: {
+            "Content-Type": "application/json",
             Authorization: `Bearer ${newJwt}`,
             "x-api-key": this.apiKey,
           },
+          body,
           signal: AbortSignal.timeout(10_000),
         });
         if (!retry.ok) {
@@ -335,7 +368,7 @@ export class PredictClobClient implements ClobClient {
       if (!account) throw new Error("WalletClient has no account");
 
       const res = await fetch(
-        `${this.apiBase}/v1/orders?address=${account.address}&status=open`,
+        `${this.apiBase}/v1/orders?address=${account.address}&status=OPEN`,
         {
           headers: {
             Authorization: `Bearer ${jwt}`,
@@ -441,7 +474,7 @@ export class PredictClobClient implements ClobClient {
     const account = this.walletClient.account;
     if (!account) throw new Error("WalletClient has no account");
 
-    // Check ERC-1155 (CTF token) isApprovedForAll
+    // Check & set ERC-1155 (CTF token) isApprovedForAll
     try {
       const ctfApproved = await publicClient.readContract({
         address: PREDICT_CTF_ADDRESS,
@@ -450,11 +483,24 @@ export class PredictClobClient implements ClobClient {
         args: [account.address, this.exchangeAddress],
       });
       if (!ctfApproved) {
-        log.warn("Predict CTF (ERC-1155) not approved for exchange", {
+        log.warn("Predict CTF (ERC-1155) not approved — sending setApprovalForAll", {
           ctf: PREDICT_CTF_ADDRESS,
           exchange: this.exchangeAddress,
           owner: account.address,
         });
+        try {
+          const txHash = await this.walletClient.writeContract({
+            account,
+            address: PREDICT_CTF_ADDRESS,
+            abi: ERC1155_SET_APPROVAL_ABI,
+            functionName: "setApprovalForAll",
+            args: [this.exchangeAddress, true],
+            chain: this.walletClient.chain,
+          });
+          log.info("Predict CTF setApprovalForAll tx sent", { txHash });
+        } catch (txErr) {
+          log.error("Failed to send CTF setApprovalForAll tx", { error: String(txErr) });
+        }
       } else {
         log.info("Predict CTF (ERC-1155) approval OK");
       }
@@ -462,7 +508,7 @@ export class PredictClobClient implements ClobClient {
       log.error("Failed to check Predict CTF approval", { error: String(err) });
     }
 
-    // Check USDT allowance
+    // Check & set USDT allowance
     try {
       const allowance = await publicClient.readContract({
         address: BSC_USDT_ADDRESS,
@@ -471,11 +517,24 @@ export class PredictClobClient implements ClobClient {
         args: [account.address, this.exchangeAddress],
       });
       if (allowance === 0n) {
-        log.warn("Predict USDT allowance is zero for exchange", {
+        log.warn("Predict USDT allowance is zero — sending approve", {
           usdt: BSC_USDT_ADDRESS,
           exchange: this.exchangeAddress,
           owner: account.address,
         });
+        try {
+          const txHash = await this.walletClient.writeContract({
+            account,
+            address: BSC_USDT_ADDRESS,
+            abi: ERC20_APPROVE_ABI,
+            functionName: "approve",
+            args: [this.exchangeAddress, 2n ** 256n - 1n],
+            chain: this.walletClient.chain,
+          });
+          log.info("Predict USDT approve tx sent", { txHash });
+        } catch (txErr) {
+          log.error("Failed to send USDT approve tx", { error: String(txErr) });
+        }
       } else {
         log.info("Predict USDT allowance OK", { allowance: allowance.toString() });
       }

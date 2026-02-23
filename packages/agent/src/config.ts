@@ -80,6 +80,9 @@ export const config = {
 } as const;
 
 if (!config.apiKey) {
+  if (process.env.NODE_ENV === "production" || config.chainId !== 31337) {
+    throw new Error("API_KEY must be set when running against real chains or in production");
+  }
   log.warn("API_KEY is not set — agent API endpoints are unauthenticated");
 }
 

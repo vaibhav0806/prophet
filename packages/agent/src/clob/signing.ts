@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import type { WalletClient } from "viem";
 import {
   type ClobOrder,
@@ -128,6 +129,42 @@ export async function signClobAuth(
   });
 
   return { signature, timestamp, nonce, address };
+}
+
+/**
+ * Build an HMAC-SHA256 signature for L2 (API-key-based) auth.
+ * Used by Polymarket-style CLOBs (Probable Markets) for order operations.
+ *
+ * Signing string: `${timestamp}${METHOD}${requestPath}[${body}]`
+ * Secret is base64url-decoded, output is base64url with padding.
+ */
+export function buildHmacSignature(
+  secret: string,
+  timestamp: number,
+  method: string,
+  requestPath: string,
+  body?: string,
+): string {
+  let message = String(timestamp) + method + requestPath;
+  if (body !== undefined) {
+    message += body;
+  }
+
+  // Decode base64url secret to raw bytes
+  const keyBuffer = Buffer.from(
+    secret.replace(/-/g, "+").replace(/_/g, "/"),
+    "base64",
+  );
+
+  const hmac = createHmac("sha256", keyBuffer);
+  hmac.update(message);
+
+  // Output as base64url with padding preserved
+  const sig = hmac
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  return sig;
 }
 
 /**

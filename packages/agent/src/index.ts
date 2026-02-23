@@ -23,6 +23,18 @@ import { allocateCapital } from "./yield/allocator.js";
 import { checkRotations } from "./yield/rotator.js";
 import type { YieldStatus } from "./yield/types.js";
 
+const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
+
+const erc20BalanceOfAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+] as const;
+
 // --- Dedup prevention ---
 const DEDUP_WINDOW_MS = 5 * 60 * 1000;
 const recentTrades = new Map<string, number>();
@@ -88,11 +100,13 @@ const walletClient = createWalletClient({
 // --- Providers ---
 const providers: MarketProvider[] = [];
 
-if (process.env.USE_MOCK_PROVIDERS === "true" || config.chainId === 31337) {
+if (config.chainId === 31337) {
   const providerA = new MockProvider(publicClient, config.adapterAAddress, "MockA", [config.marketId]);
   const providerB = new MockProvider(publicClient, config.adapterBAddress, "MockB", [config.marketId]);
   providers.push(providerA, providerB);
   log.info("Mock providers enabled", { chainId: config.chainId });
+} else if (process.env.USE_MOCK_PROVIDERS === "true") {
+  log.warn("USE_MOCK_PROVIDERS ignored — mock providers are only allowed on chainId 31337");
 }
 
 if (config.opinionAdapterAddress && config.opinionApiKey && config.opinionTokenMap) {
@@ -138,6 +152,7 @@ if (config.chainId === 31337) {
 // --- CLOB clients (when executionMode=clob) ---
 let probableClobClient: ProbableClobClient | undefined;
 let predictClobClient: PredictClobClient | undefined;
+let clobInitPromise: Promise<void> | undefined;
 
 if (config.executionMode === "clob") {
   log.info("CLOB execution mode enabled");
@@ -164,8 +179,9 @@ if (config.executionMode === "clob") {
   }
 
   // Initialize CLOB clients (auth + nonce)
-  (async () => {
+  clobInitPromise = (async () => {
     try {
+      await probableClobClient!.authenticate();
       await probableClobClient!.fetchNonce();
       if (predictClobClient) {
         await predictClobClient.authenticate();
@@ -215,6 +231,7 @@ const executor = new Executor(
   publicClient,
   { probable: probableClobClient, predict: predictClobClient },
   metaResolvers,
+  walletClient,
 );
 
 // --- Agent state ---
@@ -257,6 +274,8 @@ async function scan(): Promise<void> {
   scanning = true;
 
   try {
+    if (clobInitPromise) await clobInitPromise;
+
     try {
       log.info("Scanning for opportunities");
 
@@ -312,9 +331,14 @@ async function scan(): Promise<void> {
       let balanceForLossCheck = 0n;
       if (config.executionMode === "clob") {
         try {
-          const eoaBalance = await publicClient.getBalance({ address: account.address });
-          // Convert native balance to USDT equivalent (6 decimals)
-          balanceForLossCheck = (eoaBalance * config.gasToUsdtRate) / BigInt(1e18);
+          const usdtBalance = await publicClient.readContract({
+            address: BSC_USDT,
+            abi: erc20BalanceOfAbi,
+            functionName: "balanceOf",
+            args: [account.address],
+          });
+          // BSC USDT is 18 decimals, dailyLossLimit is 6 decimals
+          balanceForLossCheck = usdtBalance / BigInt(1e12);
         } catch { /* balance check may fail */ }
       } else {
         try { balanceForLossCheck = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
@@ -388,6 +412,18 @@ async function scan(): Promise<void> {
         }
       } catch (err) {
         log.error("Error closing resolved positions", { error: String(err) });
+      }
+
+      // Close resolved CLOB positions
+      if (config.executionMode === "clob" && clobPositions.length > 0) {
+        try {
+          const closedClob = await executor.closeResolvedClob(clobPositions);
+          if (closedClob > 0) {
+            log.info("Closed resolved CLOB positions", { count: closedClob });
+          }
+        } catch (err) {
+          log.error("Error closing resolved CLOB positions", { error: String(err) });
+        }
       }
 
       // --- Yield rotation ---

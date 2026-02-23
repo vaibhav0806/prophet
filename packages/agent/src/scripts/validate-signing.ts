@@ -106,8 +106,10 @@ async function validateProbable(): Promise<void> {
     dryRun: false,
   });
 
-  // Authenticate (no-op for Probable)
+  // Authenticate (derives L2 API key via EIP-712 signed request)
+  console.log("\nAuthenticating (deriving L2 API key)...");
   await client.authenticate();
+  console.log("Authentication successful.");
 
   // Fetch nonce (critical — server may reject nonce=0)
   console.log("\nFetching nonce...");

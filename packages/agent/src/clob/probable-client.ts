@@ -7,7 +7,7 @@ import type {
   OrderStatusResult,
   OrderStatus,
 } from "./types.js"
-import { buildOrder, signOrder, signClobAuth, serializeOrder } from "./signing.js"
+import { buildOrder, signOrder, signClobAuth, serializeOrder, buildHmacSignature } from "./signing.js"
 import { log } from "../logger.js"
 import { withRetry } from "../retry.js"
 
@@ -37,6 +37,28 @@ const ERC20_ALLOWANCE_ABI = [{
   stateMutability: "view" as const,
 }] as const
 
+const ERC1155_SET_APPROVAL_ABI = [{
+  type: "function" as const,
+  name: "setApprovalForAll" as const,
+  inputs: [
+    { name: "operator", type: "address" as const },
+    { name: "approved", type: "bool" as const },
+  ],
+  outputs: [],
+  stateMutability: "nonpayable" as const,
+}] as const
+
+const ERC20_APPROVE_ABI = [{
+  type: "function" as const,
+  name: "approve" as const,
+  inputs: [
+    { name: "spender", type: "address" as const },
+    { name: "amount", type: "uint256" as const },
+  ],
+  outputs: [{ name: "", type: "bool" as const }],
+  stateMutability: "nonpayable" as const,
+}] as const
+
 /** BSC USDT */
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`
 
@@ -51,6 +73,10 @@ export class ProbableClobClient implements ClobClient {
   private expirationSec: number
   private dryRun: boolean
   private nonce: bigint
+
+  private apiKey: string | null
+  private apiSecret: string | null
+  private apiPassphrase: string | null
 
   constructor(params: {
     walletClient: WalletClient
@@ -68,19 +94,39 @@ export class ProbableClobClient implements ClobClient {
     this.expirationSec = params.expirationSec ?? 300
     this.dryRun = params.dryRun ?? false
     this.nonce = 0n
+    this.apiKey = null
+    this.apiSecret = null
+    this.apiPassphrase = null
   }
 
   // ---------------------------------------------------------------------------
   // Auth
   // ---------------------------------------------------------------------------
 
-  private async getAuthHeaders(): Promise<Record<string, string>> {
+  private async getL1AuthHeaders(): Promise<Record<string, string>> {
     const auth = await signClobAuth(this.walletClient, this.chainId)
     return {
-      POLY_ADDRESS: auth.address,
-      POLY_SIGNATURE: auth.signature,
-      POLY_TIMESTAMP: auth.timestamp,
-      POLY_NONCE: "0",
+      Prob_address: auth.address,
+      Prob_signature: auth.signature,
+      Prob_timestamp: auth.timestamp,
+      Prob_nonce: "0",
+    }
+  }
+
+  private getL2AuthHeaders(method: string, requestPath: string, body?: string): Record<string, string> {
+    if (!this.apiKey || !this.apiSecret || !this.apiPassphrase) {
+      throw new Error("L2 auth not initialized — call authenticate() first")
+    }
+    const timestamp = Math.floor(Date.now() / 1000)
+    const sig = buildHmacSignature(this.apiSecret, timestamp, method, requestPath, body)
+    const account = this.walletClient.account
+    if (!account) throw new Error("WalletClient has no account")
+    return {
+      Prob_address: account.address,
+      Prob_signature: sig,
+      Prob_timestamp: String(timestamp),
+      Prob_api_key: this.apiKey,
+      Prob_passphrase: this.apiPassphrase,
     }
   }
 
@@ -89,8 +135,63 @@ export class ProbableClobClient implements ClobClient {
   // ---------------------------------------------------------------------------
 
   async authenticate(): Promise<void> {
-    // No-op: Probable uses per-request POLY_* auth headers
-    log.info("Probable auth is per-request, skipping session auth")
+    const headers = await this.getL1AuthHeaders()
+    const createUrl = `${this.apiBase}/public/api/v1/auth/api-key/${this.chainId}`
+
+    log.info("Probable: creating API key", { chainId: this.chainId })
+
+    let data: Record<string, unknown> | null = null
+
+    try {
+      const res = await withRetry(
+        () =>
+          fetch(createUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...headers,
+            },
+            signal: AbortSignal.timeout(10_000),
+          }),
+        { retries: 2, delayMs: 500, label: "Probable createApiKey" },
+      )
+
+      if (res.ok) {
+        data = await res.json() as Record<string, unknown>
+      } else {
+        log.info("Probable: createApiKey returned non-ok, falling back to deriveApiKey", { status: res.status })
+      }
+    } catch (err) {
+      log.info("Probable: createApiKey failed, falling back to deriveApiKey", { error: String(err) })
+    }
+
+    if (!data) {
+      const deriveHeaders = await this.getL1AuthHeaders()
+      const deriveUrl = `${this.apiBase}/public/api/v1/auth/derive-api-key/${this.chainId}`
+
+      const res = await withRetry(
+        () =>
+          fetch(deriveUrl, {
+            method: "GET",
+            headers: deriveHeaders,
+            signal: AbortSignal.timeout(10_000),
+          }),
+        { retries: 2, delayMs: 500, label: "Probable deriveApiKey" },
+      )
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "")
+        throw new Error(`Probable deriveApiKey failed: HTTP ${res.status} ${body}`)
+      }
+
+      data = await res.json() as Record<string, unknown>
+    }
+
+    this.apiKey = data.apiKey as string
+    this.apiSecret = data.secret as string
+    this.apiPassphrase = data.passphrase as string
+
+    log.info("Probable: L2 auth initialized", { apiKey: this.apiKey })
   }
 
   async placeOrder(params: PlaceOrderParams): Promise<OrderResult> {
@@ -120,7 +221,12 @@ export class ProbableClobClient implements ClobClient {
       )
 
       const serialized = serializeOrder(signed.order)
-      const body = { order: serialized, signature: signed.signature }
+      const body = {
+        order: serialized,
+        signature: signed.signature,
+        orderType: "GTC",
+        owner: account.address,
+      }
 
       log.info("Probable order built", {
         tokenId,
@@ -137,17 +243,19 @@ export class ProbableClobClient implements ClobClient {
         return { success: true, orderId: "dry-run", status: "DRY_RUN" }
       }
 
-      const headers = await this.getAuthHeaders()
+      const requestPath = `/public/api/v1/order/${this.chainId}`
+      const bodyStr = JSON.stringify(body)
+      const headers = this.getL2AuthHeaders("POST", requestPath, bodyStr)
 
       const res = await withRetry(
         () =>
-          fetch(`${this.apiBase}/public/api/v1/order`, {
+          fetch(`${this.apiBase}${requestPath}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...headers,
             },
-            body: JSON.stringify(body),
+            body: bodyStr,
             signal: AbortSignal.timeout(10_000),
           }),
         { retries: 2, delayMs: 500, label: "Probable placeOrder" },
@@ -187,11 +295,12 @@ export class ProbableClobClient implements ClobClient {
     }
 
     try {
-      const headers = await this.getAuthHeaders()
+      const requestPath = `/public/api/v1/order/${this.chainId}/${orderId}`
+      const headers = this.getL2AuthHeaders("DELETE", requestPath)
 
       const res = await withRetry(
         () =>
-          fetch(`${this.apiBase}/public/api/v1/order/${orderId}`, {
+          fetch(`${this.apiBase}${requestPath}`, {
             method: "DELETE",
             headers: {
               "Content-Type": "application/json",
@@ -218,11 +327,12 @@ export class ProbableClobClient implements ClobClient {
 
   async getOpenOrders(): Promise<Array<{ orderId: string; tokenId: string; side: OrderSide; price: number; size: number }>> {
     try {
-      const headers = await this.getAuthHeaders()
+      const requestPath = `/public/api/v1/orders/${this.chainId}/open`
+      const headers = this.getL2AuthHeaders("GET", requestPath)
 
       const res = await withRetry(
         () =>
-          fetch(`${this.apiBase}/public/api/v1/orders`, {
+          fetch(`${this.apiBase}${requestPath}`, {
             method: "GET",
             headers,
             signal: AbortSignal.timeout(10_000),
@@ -251,11 +361,12 @@ export class ProbableClobClient implements ClobClient {
 
   async getOrderStatus(orderId: string): Promise<OrderStatusResult> {
     try {
-      const headers = await this.getAuthHeaders()
+      const requestPath = `/public/api/v1/order/${this.chainId}/${orderId}`
+      const headers = this.getL2AuthHeaders("GET", requestPath)
 
       const res = await withRetry(
         () =>
-          fetch(`${this.apiBase}/public/api/v1/order/${orderId}`, {
+          fetch(`${this.apiBase}${requestPath}`, {
             method: "GET",
             headers,
             signal: AbortSignal.timeout(10_000),
@@ -325,11 +436,20 @@ export class ProbableClobClient implements ClobClient {
     })
 
     if (!isApproved) {
-      log.warn("CTF ERC-1155 not approved for Probable exchange", {
+      log.info("CTF ERC-1155 not approved — sending setApprovalForAll tx", {
         ctf: PROBABLE_CTF_ADDRESS,
         exchange: this.exchangeAddress,
         owner,
       })
+      const txHash = await this.walletClient.writeContract({
+        account,
+        chain: this.walletClient.chain,
+        address: PROBABLE_CTF_ADDRESS,
+        abi: ERC1155_SET_APPROVAL_ABI,
+        functionName: "setApprovalForAll",
+        args: [this.exchangeAddress, true],
+      })
+      log.info("CTF setApprovalForAll tx sent", { txHash })
     }
 
     // Check USDT allowance
@@ -341,11 +461,20 @@ export class ProbableClobClient implements ClobClient {
     })
 
     if (allowance === 0n) {
-      log.warn("USDT allowance is 0 for Probable exchange", {
+      log.info("USDT allowance is 0 — sending approve tx (max)", {
         usdt: BSC_USDT,
         exchange: this.exchangeAddress,
         owner,
       })
+      const txHash = await this.walletClient.writeContract({
+        account,
+        chain: this.walletClient.chain,
+        address: BSC_USDT,
+        abi: ERC20_APPROVE_ABI,
+        functionName: "approve",
+        args: [this.exchangeAddress, 2n ** 256n - 1n],
+      })
+      log.info("USDT approve tx sent", { txHash })
     } else {
       log.info("USDT allowance for Probable exchange", { allowance })
     }
@@ -356,34 +485,7 @@ export class ProbableClobClient implements ClobClient {
   // ---------------------------------------------------------------------------
 
   async fetchNonce(): Promise<bigint> {
-    try {
-      const headers = await this.getAuthHeaders()
-
-      const res = await withRetry(
-        () =>
-          fetch(`${this.apiBase}/public/api/v1/nonce`, {
-            method: "GET",
-            headers,
-            signal: AbortSignal.timeout(10_000),
-          }),
-        { retries: 2, delayMs: 500, label: "Probable fetchNonce" },
-      )
-
-      if (!res.ok) {
-        log.warn("Probable fetchNonce failed, defaulting to 0", { status: res.status })
-        this.nonce = 0n
-        return this.nonce
-      }
-
-      const data = await res.json() as Record<string, unknown>
-      const raw = data.nonce ?? data.next_nonce ?? 0
-      this.nonce = BigInt(Number(raw))
-      log.info("Probable nonce fetched", { nonce: this.nonce })
-      return this.nonce
-    } catch (err) {
-      log.warn("Probable fetchNonce error, defaulting to 0", { error: String(err) })
-      this.nonce = 0n
-      return this.nonce
-    }
+    log.info("Probable fetchNonce: using local nonce (no server endpoint)", { nonce: this.nonce })
+    return this.nonce
   }
 }

@@ -30,8 +30,11 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **State persistence** | Done | JSON file, auto-restore on restart |
 | **Market discovery scripts** | Done | `discover-markets.ts`, `match-markets.ts` for Predict.fun |
 | **CLOB types + EIP-712 signing** | Done | Shared `ClobOrder` struct, `signOrder()`, `signClobAuth()` via viem `signTypedData` |
-| **Probable CLOB client** | Done | EIP-712 signed orders, POLY_* per-request auth, order/cancel/approvals |
+| **Probable CLOB client** | Done | EIP-712 signed orders, Prob_* L2 HMAC auth, order/cancel/approvals, API key derivation |
 | **Predict.fun CLOB client** | Done | JWT auth flow, EIP-712 signed orders, 401 re-auth, order/cancel/approvals |
+| **Fill polling** | Done | `pollForFills()` — polls both legs every 5s for 60s, handles FILLED/PARTIAL/EXPIRED, cancels unfilled on timeout |
+| **CLOB position redemption** | Done | `closeResolvedClob()` — checks CTF `payoutDenominator`, calls `redeemPositions`, updates status to CLOSED |
+| **Signing validation script** | Done | `validate-signing.ts` — CLI for testing EIP-712 signing against real APIs (blocked on funded BSC wallet) |
 | **CLOB execution mode** | Done | `EXECUTION_MODE=clob` bypasses vault, EOA signs+places limit orders directly on CLOBs |
 | **Auto-discovery pipeline** | Done | Fetch all markets from both platforms, match by conditionId + title similarity, output market maps |
 | **Auto-discover CLI** | Done | `npx tsx src/scripts/auto-discover.ts [--dry-run] [--save]` |
@@ -45,13 +48,16 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **XO Market adapter** | Not started | Bonding curve architecture, lower priority |
 | **Bento adapter** | Not started | UGC markets, early access, lower priority |
 | **Opinion live integration** | Blocked | Waiting for API key |
-| **BSC mainnet deployment** | Not started | Needs P0 fixes + testnet validation first |
+| **BSC mainnet deployment** | Not started | Needs blocker fixes + signing validation first |
 | **Multi-sig ownership** | Not started | Required for production |
 | **Proxy/upgradeable contracts** | Not started | Decision needed |
 | **CLOB client integration tests** | Not started | Need mocked fetch or testnet; unit tests pass but no HTTP-level tests for probable-client/predict-client |
-| **Testnet order placement** | Not started | Place + cancel test order on BSC testnet (chainId 97) to validate full signing flow |
-| **CLOB order fill polling** | Not started | Poll both orders for fills (60s timeout), cancel unfilled leg on partial fill |
-| **CLOB position redemption** | Not started | Detect market resolution, redeem CTF tokens, update position status to CLOSED |
+| **Mainnet signing validation** | Blocked | Script exists (`validate-signing.ts`), needs funded BSC wallet + real RPC URL |
+| **Probable `authenticate()` call** | Bug | Never called on startup in `index.ts` — first placeOrder will throw "L2 auth not initialized" |
+| **CLOB daily loss reads BNB not USDT** | Bug | `getBalance()` returns BNB balance, should read USDT ERC-20 balance for CLOB mode |
+| **Nonce reset on restart** | Not started | Nonce starts at 0n on each restart, server may reject duplicate nonce |
+| **USDT balance pre-check** | Not started | No check that wallet has enough USDT before placing orders |
+| **Graceful shutdown** | Not started | No await for in-flight scans or state flush on SIGTERM |
 
 ### Test Results
 
@@ -107,53 +113,71 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 
 ## Production Readiness Audit
 
-### P0 — Must Fix Before Launch
+### Phase 1 P0s — All Fixed ✓
 
-#### Agent
+All original P0 issues from the initial audit have been fixed:
 
-| # | Issue | Detail | Fix |
-|---|-------|--------|-----|
-| 1 | **No duplicate trade prevention** | Same opportunity executes on consecutive scans if prices haven't moved | Track recently executed opportunities with hash dedup (marketId + protocols), 5-min cooldown window |
-| 2 | **`Promise.all` kills all quotes on single provider failure** | One API timeout = entire scan returns 0 quotes | Switch to `Promise.allSettled`, use only fulfilled results |
-| 3 | **No fee accounting in detector** | Predict.fun charges 200bps. Detector shows "profitable" spreads that lose money after fees | Subtract protocol fees from spread calculation. Make fee schedule configurable per provider |
-| 4 | **Orderbook validation missing** | 0 price, crossed books, empty books, stale timestamps all treated as valid quotes | Validate: price > 0 && price < 1, asks sorted, timestamp < 60s, minimum liquidity threshold |
-| 5 | **MockProviders always instantiated** | Test mock providers run alongside real providers in production | Gate behind `USE_MOCK_PROVIDERS=true` or `chainId === 31337` |
-| 6 | **Non-atomic persistence** | `writeFileSync` crash mid-write corrupts state file → positions lost on restart | Write to `.tmp` then `rename()` (atomic on POSIX) |
-| 7 | **No agent-side loss limits** | Agent keeps trading even if vault is bleeding money | Track cumulative PnL, pause if daily loss exceeds threshold |
-| 8 | **No position size vs liquidity check** | May try to buy more than orderbook depth | Check orderbook liquidity before sizing position |
+| # | Issue | Status | Commit |
+|---|-------|--------|--------|
+| 1 | Duplicate trade prevention | Fixed | `6bfeba7` |
+| 2 | `Promise.allSettled` for providers | Fixed | `6bfeba7` |
+| 3 | Fee accounting in detector | Fixed | `6bfeba7` |
+| 4 | Orderbook validation | Fixed | `6bfeba7` |
+| 5 | MockProvider gating | Fixed | `6bfeba7` |
+| 6 | Atomic state persistence | Fixed | `6bfeba7` |
+| 7 | Agent-side loss limits | Fixed | `6bfeba7` |
+| 8 | Position size vs liquidity check | Fixed | `6bfeba7` |
+| 9 | `resetDailyLoss()` timelock | Fixed | `4e335f1` |
+| 10 | 2-step `setAgent()` | Fixed | `4e335f1` |
+| 11 | Hardcoded localhost fallbacks | Fixed | `c148a24` |
 
-#### Contracts
+---
 
-| # | Issue | Detail | Fix |
-|---|-------|--------|-----|
-| 9 | **`resetDailyLoss()` has no timelock** | Owner can reset loss counter instantly, bypassing circuit breaker | Add 24h timelock or remove manual reset entirely (auto-reset only) |
-| 10 | **`setAgent()` is instant** | Compromised owner can hijack agent role and drain vault in one tx | Implement 2-step agent update with timelock (like `Ownable2Step`) |
+### Mainnet Deployment Blockers (Feb 24, 2026)
 
-#### Frontend/Infra
+#### Tier 1 — Hard Blockers (must fix before any real money)
 
-| # | Issue | Detail | Fix |
-|---|-------|--------|-----|
-| 11 | **Hardcoded `localhost` fallbacks** | Missing env vars silently default to `localhost:3001` / `127.0.0.1:8545` | Require env vars in production (throw on missing) |
+| # | Area | Issue | Detail | Fix | Effort |
+|---|------|-------|--------|-----|--------|
+| 1 | Agent | **`authenticate()` never called for Probable** | `index.ts` IIFE calls `fetchNonce()` but NOT `authenticate()` — first placeOrder throws "L2 auth not initialized" | Add `await probableClobClient.authenticate()` before `fetchNonce()` in IIFE | 5 min |
+| 2 | Agent | **CLOB daily loss reads BNB, not USDT** | `executor.ts` uses `publicClient.getBalance()` (returns BNB wei) for CLOB mode loss tracking. Should read USDT ERC-20 balance | Replace `getBalance()` with `readContract({ address: BSC_USDT, functionName: "balanceOf" })` | 30 min |
+| 3 | Agent | **EIP-712 domain never validated against live API** | Signing code matches Polymarket spec on paper but no real order has been accepted. Domain separator, struct hash, field ordering unproven | Run `validate-signing.ts` against Probable + Predict.fun with funded wallet | Blocked on wallet |
+| 4 | Agent | **Mock providers still instantiate on chainId 31337** | `.env` has `CHAIN_ID=31337` (Hardhat). MockProvider code path activates. Must be `CHAIN_ID=56` for mainnet | Flip to `CHAIN_ID=56` + real BSC RPC URL. Hard-block mock instantiation if `CHAIN_ID !== 31337` | 10 min |
+| 5 | Agent | **API unauthenticated** | `API_KEY` defaults to empty string (`""`) — all endpoints are open. Anyone with the URL can start/stop agent, view positions | Require non-empty `API_KEY` in config, throw on startup if missing | 15 min |
+| 6 | Agent | **CLOB lazy init race** | CLOB clients are initialized inside an IIFE with no await gate — scan loop can start before auth/nonce complete | `await` the CLOB init promise before starting scan interval | 30 min |
+| 7 | Contracts | **`DeployProduction.s.sol` incomplete** | Script exists but doesn't deploy adapters, register markets, or set approvals. No BSC fork config in `foundry.toml` | Complete deploy script with full adapter deploy + market registration + approval grants. Add `[profile.bsc]` to foundry.toml | 4-8 hrs |
+| 8 | Contracts | **No market registration flow** | Adapters have `setQuote()` per marketId but no script/function to register all 19+ wired markets on-chain | Add batch `registerMarket` script that sets initial quotes for all configured markets | 2-4 hrs |
 
-### P1 — Should Fix
+#### Tier 2 — High Risk (should fix before scaling beyond $100)
+
+| # | Area | Issue | Detail | Fix | Effort |
+|---|------|-------|--------|-----|--------|
+| 1 | Agent | **Partial fill — no remediation** | If leg A fills and leg B doesn't, `pollForFills` logs CRITICAL but takes no action. Agent has naked directional exposure | Auto-cancel unfilled leg, or market-sell filled leg to unwind. At minimum, pause agent | 2-4 hrs |
+| 2 | Agent | **Nonce reset on restart** | `ProbableClobClient.nonce` starts at `0n` on each restart. Server may reject if nonce already used | Fetch nonce from server on startup (requires Probable API endpoint), or persist last nonce to state file | 1-2 hrs |
+| 3 | Agent | **No USDT balance pre-check** | Orders placed without verifying wallet has enough USDT. Will fail on-chain with obscure revert | Read USDT balance before order, skip if insufficient | 30 min |
+| 4 | Agent | **Graceful shutdown missing** | `SIGTERM` kills process mid-scan. In-flight orders may not be cancelled, state may not flush | Add signal handler: cancel pending orders, flush state, close HTTP server | 2-4 hrs |
+| 5 | Agent | **Float precision in order amounts** | `Math.floor(size * 1_000_000)` can produce off-by-one with IEEE 754 floats | Use integer arithmetic or `BigInt` math throughout. Or multiply-then-truncate with rounding check | 1-2 hrs |
+| 6 | Agent | **JWT expiry race (Predict.fun)** | JWT token cached with no TTL tracking. If token expires between check and use, 401 → re-auth → retry. But concurrent requests can cause double re-auth | Add mutex around JWT refresh, track expiry timestamp | 1-2 hrs |
+| 7 | Contracts | **`setCircuitBreakers` has no timelock** | Owner can disable all safety limits (daily loss, cooldown, position cap) in a single tx | Add timelock or require multi-sig for circuit breaker changes | 2-4 hrs |
+| 8 | Infra | **npm audit vulnerabilities** | Multiple packages have known vulnerabilities. `npm audit` shows issues in both agent and frontend | Run `npm audit fix`, upgrade vulnerable deps, document accepted risks | 1-2 hrs |
+
+#### Tier 3 — Medium Priority (fix before production scale)
 
 | # | Area | Issue | Fix |
 |---|------|-------|-----|
-| 1 | Agent | Graceful shutdown doesn't wait for in-flight scans or flush state | Await current scan completion, save state, close HTTP server |
-| 2 | Agent | No `/api/health` endpoint | Add health check returning last scan time + provider statuses |
-| 3 | Agent | Gas estimation uses hardcoded 400k, no wallet balance check | Use `estimateGas()`, verify BNB balance before execution |
-| 4 | Agent | No market expiration checks | Skip markets expiring within 24h |
-| 5 | Agent | LLM prompt injection via market descriptions | Sanitize untrusted API data before passing to OpenAI |
-| 6 | Agent | No API rate limiting on agent endpoints | Add middleware rate limiter |
-| 7 | Contracts | Adapter removal traps open positions | Prevent removal while positions reference that adapter |
-| 8 | Contracts | 1:1 share split assumption may fail on real CTF | Verify actual shares returned vs expected after `splitPosition()` |
-| 9 | Contracts | Positions array grows unbounded | Add archival mechanism or use mapping-based storage |
-| 10 | Contracts | No upgrade path (immutable contracts) | Consider UUPS proxy for vault, or plan migration strategy |
-| 11 | Contracts | `block.timestamp` daily reset vulnerable to MEV | Use `block.number / blocksPerDay` instead |
-| 12 | Frontend | Aggressive polling (2-3s) with no backoff when agent is down | Exponential backoff, pause when tab hidden |
-| 13 | Frontend | API proxy has no path whitelisting | Whitelist allowed agent API endpoints |
-| 14 | Infra | Docker containers run as root | Add `USER node` directive |
-| 15 | Infra | CI missing lint, security scan, deploy step | Add eslint, `npm audit`, container build+push |
+| 1 | Agent | No `/api/health` endpoint | Add health check returning last scan time + provider statuses |
+| 2 | Agent | Gas estimation uses hardcoded 400k | Use `estimateGas()`, verify BNB balance before vault execution |
+| 3 | Agent | No market expiration checks | Skip markets expiring within 24h |
+| 4 | Agent | LLM prompt injection via market descriptions | Sanitize untrusted API data before passing to OpenAI |
+| 5 | Agent | No API rate limiting on agent endpoints | Add middleware rate limiter |
+| 6 | Contracts | Adapter removal traps open positions | Prevent removal while positions reference that adapter |
+| 7 | Contracts | 1:1 share split assumption may fail on real CTF | Verify actual shares returned vs expected after `splitPosition()` |
+| 8 | Contracts | Positions array grows unbounded | Add archival mechanism or use mapping-based storage |
+| 9 | Contracts | No upgrade path (immutable contracts) | Consider UUPS proxy for vault, or plan migration strategy |
+| 10 | Frontend | Aggressive polling (2-3s) with no backoff | Exponential backoff, pause when tab hidden |
+| 11 | Frontend | API proxy has no path whitelisting | Whitelist allowed agent API endpoints |
+| 12 | Infra | Docker containers run as root | Add `USER node` directive |
+| 13 | Infra | CI missing lint, security scan, deploy step | Add eslint, `npm audit`, container build+push |
 
 ### P2 — Nice to Have
 
@@ -173,7 +197,7 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 
 ## Pre-Launch Checklist
 
-### Phase 1: P0 Fixes (~1-2 days)
+### Phase 1: P0 Fixes — DONE ✓
 - [x] Agent: duplicate trade prevention (dedup window) — `6bfeba7`
 - [x] Agent: `Promise.allSettled` for providers — `6bfeba7`
 - [x] Agent: fee accounting in detector (200bps Predict.fun fee subtracted from spread) — `6bfeba7`
@@ -186,10 +210,10 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 - [x] Contracts: 2-step `setAgent()` with 24h delay (propose/accept/cancel) — `4e335f1`
 - [x] Frontend: warn on missing env vars (throws break `next build` SSG) — `c148a24`
 
-### Phase 2: CLOB Execution & Auto-Discovery ~~(~2-3 days)~~ DONE
-- [x] CLOB types + EIP-712 signing (`clob/types.ts`, `clob/signing.ts`) — shared order struct, `signOrder()`, `signClobAuth()`
-- [x] Probable CLOB client (`clob/probable-client.ts`) — POLY_* auth, order placement, cancel, nonce management, approval checks
-- [x] Predict.fun CLOB client (`clob/predict-client.ts`) — JWT auth flow, order placement with 401 re-auth, approval checks
+### Phase 2: CLOB Execution & Auto-Discovery — DONE ✓
+- [x] CLOB types + EIP-712 signing (`clob/types.ts`, `clob/signing.ts`) — shared order struct, `signOrder()`, `signClobAuth()`, `buildHmacSignature()`
+- [x] Probable CLOB client (`clob/probable-client.ts`) — Prob_* L2 HMAC auth, API key derivation, order placement, cancel, approval txs
+- [x] Predict.fun CLOB client (`clob/predict-client.ts`) — JWT auth flow, order placement with 401 re-auth, approval txs
 - [x] `EXECUTION_MODE=clob` wiring — executor mode switch, EOA signs orders directly (bypasses vault), EOA balance for loss limit
 - [x] Auto-discovery pipeline (`discovery/pipeline.ts`) — fetch both platforms, conditionId match + Jaccard title similarity (>0.85)
 - [x] Auto-discover CLI (`scripts/auto-discover.ts`) — `npx tsx src/scripts/auto-discover.ts [--dry-run] [--save]`
@@ -197,27 +221,44 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 - [x] API endpoints — `GET /api/clob-positions`, `POST /api/discovery/run`
 - [x] Unit tests — 39 tests (order construction, serialization, constants, title similarity, execution mode)
 - [x] Handle Predict.fun Cloudflare — REST API is NOT blocked (only browser scraping); confirmed working
-- [ ] **Remaining:** CLOB client integration tests (mocked fetch), testnet order placement, fill polling, position redemption
+- [x] Fill polling (`pollForFills`) — polls both legs every 5s for 60s, handles FILLED/PARTIAL/EXPIRED states
+- [x] CLOB position redemption (`closeResolvedClob`) — checks CTF `payoutDenominator`, calls `redeemPositions`
+- [x] Signing validation script (`validate-signing.ts`) — CLI for testing against real APIs
+- [ ] **Remaining:** CLOB client integration tests (mocked fetch), signing validation against real APIs (blocked on funded wallet)
 
-### Phase 3: BSC Testnet Validation (~2-3 days)
-- [ ] Deploy vault + all 3 adapters to BSC testnet
-- [ ] Test against real Gnosis CTF contract (not mocks)
-- [ ] Verify `splitPosition` / `mergePositions` / `redeemPositions` work with real CTF token IDs
-- [ ] Run agent against live Predict.fun + Probable APIs for 48-72h
-- [ ] Monitor for: stale quotes, API failures, gas spikes, position lifecycle issues
-- [ ] Verify circuit breakers fire correctly under real conditions
+### Phase 2.5: Tier 1 Blocker Fixes (current)
+- [ ] Add `probableClobClient.authenticate()` to `index.ts` IIFE (Tier 1 #1)
+- [ ] Fix CLOB daily loss to read USDT balance, not BNB (Tier 1 #2)
+- [ ] Validate EIP-712 signing against live Probable + Predict.fun APIs (Tier 1 #3 — needs funded wallet)
+- [ ] Set `CHAIN_ID=56` + real BSC RPC, hard-block mocks on mainnet (Tier 1 #4)
+- [ ] Require non-empty `API_KEY` on startup (Tier 1 #5)
+- [ ] Await CLOB init before starting scan loop (Tier 1 #6)
+- [ ] Complete `DeployProduction.s.sol` + BSC foundry config (Tier 1 #7)
+- [ ] Market registration script for on-chain adapters (Tier 1 #8)
 
-### Phase 4: Security Hardening (~1-2 days)
+### Phase 3: BSC Mainnet Validation
+- [ ] Fund EOA wallet with BNB (gas) + USDT (trading capital)
+- [ ] Run `validate-signing.ts --platform both --cancel` — confirm orders accepted + cancelled
+- [ ] Run `ensureApprovals()` — set CTF + USDT approvals for both exchanges
+- [ ] Deploy vault + all 3 adapters to BSC mainnet
+- [ ] Register all 19+ wired markets on adapters
+- [ ] Run agent in `DRY_RUN=true` mode for 24h against live APIs
+- [ ] Verify: no stale quotes, no API failures, no signing rejections
+- [ ] Switch to `DRY_RUN=false` with $100 USDT
+- [ ] Monitor for 48h: position lifecycle, fill rates, PnL tracking
+
+### Phase 4: Security Hardening
+- [ ] Fix Tier 2 blockers (partial fill remediation, graceful shutdown, nonce persistence, USDT balance check)
 - [ ] Deploy with multi-sig owner (Gnosis Safe)
-- [ ] Add timelock for all admin operations
-- [ ] Fix P1 items (graceful shutdown, health checks, gas estimation, etc.)
+- [ ] Add timelock for `setCircuitBreakers`
+- [ ] Fix Tier 3 items (health endpoint, gas estimation, rate limiting, etc.)
 - [ ] Consider external audit for vault contract
 
-### Phase 5: Mainnet Launch
-- [ ] Deploy to BSC mainnet with small capital ($100-500 USDT)
-- [ ] Monitor for 24-48h before scaling
-- [ ] Gradually increase position size limits
-- [ ] Add monitoring/alerting (P2 items)
+### Phase 5: Scale
+- [ ] Gradually increase position size limits ($500 → $1000 → $5000)
+- [ ] Add monitoring/alerting (Prometheus, Slack webhooks)
+- [ ] Expand to additional market categories (crypto prices, token launches)
+- [ ] Wire Opinion.trade when API key arrives
 
 ---
 
@@ -271,7 +312,7 @@ Yield Rotation (optional)
 CLOB Clients (direct EOA order placement)
   ├── ClobTypes         ── shared EIP-712 order struct, ClobClient interface
   ├── Signing           ── buildOrder, signOrder, signClobAuth via viem signTypedData
-  ├── ProbableClobClient── POLY_* per-request auth, order placement, cancel, approvals
+  ├── ProbableClobClient── Prob_* L2 HMAC auth, API key derivation, order/cancel, approvals
   └── PredictClobClient ── JWT auth flow, order placement, 401 re-auth, approvals
 
 Execution
@@ -405,7 +446,7 @@ prophit/
         yield/{scorer,allocator,rotator,types}.ts
         discovery/pipeline.ts
         api/server.ts
-        scripts/{discover-markets,match-markets,auto-discover}.ts
+        scripts/{discover-markets,match-markets,auto-discover,validate-signing}.ts
     frontend/               # Next.js 14
       src/app/{scanner,positions,agent,unifier,yield,audit}/page.tsx
       src/components/{scanner,positions,agent,unifier,yield,audit,sidebar}.tsx
