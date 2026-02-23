@@ -12,5 +12,11 @@ broadcast/
 # Ephemeral market data
 packages/agent/data/
 
+# npm lockfiles (project uses pnpm)
+package-lock.json
+
+# Auto-generated
+packages/frontend/README.md
+
 # OS
 .DS_Store
