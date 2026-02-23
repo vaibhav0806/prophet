@@ -48,12 +48,12 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| ProphitVault.t.sol | 19 (incl. fuzz) | All passing |
+| ProphitVault.t.sol | 26 (incl. fuzz + timelock) | All passing |
 | OpinionAdapter.t.sol | 30 | All passing |
 | PredictAdapter.t.sol | 30 | All passing |
 | ProbableAdapter.t.sol | 35 | All passing |
 | Agent unit tests | 84 | All passing |
-| **Total** | **198** | **All passing** |
+| **Total** | **205** | **All passing** |
 
 ### Live API Validation
 
@@ -173,9 +173,9 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 - [x] Agent: atomic state persistence (write to `.tmp` then `renameSync()`) — `6bfeba7`
 - [x] Agent: agent-side daily loss limit — `6bfeba7`
 - [x] Agent: position size vs liquidity check (90% cap per leg) — `6bfeba7`
-- [ ] Contracts: timelock on `resetDailyLoss()`
-- [ ] Contracts: 2-step `setAgent()` with delay
-- [ ] Frontend: require env vars in production mode
+- [x] Contracts: 24h timelock on `resetDailyLoss()` (request/execute/cancel) — `4e335f1`
+- [x] Contracts: 2-step `setAgent()` with 24h delay (propose/accept/cancel) — `4e335f1`
+- [x] Frontend: warn on missing env vars (throws break `next build` SSG) — `c148a24`
 
 ### Phase 2: Execution Path (~2-3 days)
 - [ ] Implement CLOB order placement for Probable (EIP-712 signed orders via API)
