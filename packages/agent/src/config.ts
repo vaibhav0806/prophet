@@ -67,6 +67,16 @@ export const config = {
   probableMarketMap: process.env.PROBABLE_MARKET_MAP
     ? JSON.parse(process.env.PROBABLE_MARKET_MAP) as Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>
     : undefined,
+  // CLOB execution mode
+  executionMode: (process.env.EXECUTION_MODE || "vault") as "vault" | "clob",
+  probableExchangeAddress: (process.env.PROBABLE_EXCHANGE_ADDRESS || "0x616C31a93769e32781409518FA2A57f3857cDD24") as `0x${string}`,
+  predictExchangeAddress: (process.env.PREDICT_EXCHANGE_ADDRESS || "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689") as `0x${string}`,
+  orderExpirationSec: Number(process.env.ORDER_EXPIRATION_SEC ?? "300"),
+  maxOrderRetries: Number(process.env.MAX_ORDER_RETRIES ?? "2"),
+  dryRun: process.env.DRY_RUN === "true",
+  fillPollIntervalMs: Number(process.env.FILL_POLL_INTERVAL_MS ?? "5000"),
+  fillPollTimeoutMs: Number(process.env.FILL_POLL_TIMEOUT_MS ?? "60000"),
+  autoDiscover: process.env.AUTO_DISCOVER === "true",
 } as const;
 
 if (!config.apiKey) {

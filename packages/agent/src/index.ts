@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, defineChain, http } from "viem";
+import { createPublicClient, createWalletClient, defineChain, http, formatUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
@@ -11,10 +11,13 @@ import { detectArbitrage } from "./arbitrage/detector.js";
 import { MatchingPipeline } from "./matching/index.js";
 import { VaultClient } from "./execution/vault-client.js";
 import { Executor } from "./execution/executor.js";
+import { ProbableClobClient } from "./clob/probable-client.js";
+import { PredictClobClient } from "./clob/predict-client.js";
+import type { ClobClient } from "./clob/types.js";
 import { createServer } from "./api/server.js";
 import { log } from "./logger.js";
 import { loadState, saveState } from "./persistence.js";
-import type { ArbitOpportunity, MarketQuote, Position, AgentStatus } from "./types.js";
+import type { ArbitOpportunity, MarketQuote, Position, ClobPosition, AgentStatus } from "./types.js";
 import { scorePositions } from "./yield/scorer.js";
 import { allocateCapital } from "./yield/allocator.js";
 import { checkRotations } from "./yield/rotator.js";
@@ -132,6 +135,54 @@ if (config.chainId === 31337) {
   log.warn("Running on local devnet (chainId 31337). Set CHAIN_ID for production.");
 }
 
+// --- CLOB clients (when executionMode=clob) ---
+let probableClobClient: ProbableClobClient | undefined;
+let predictClobClient: PredictClobClient | undefined;
+
+if (config.executionMode === "clob") {
+  log.info("CLOB execution mode enabled");
+
+  probableClobClient = new ProbableClobClient({
+    walletClient,
+    apiBase: config.probableApiBase,
+    exchangeAddress: config.probableExchangeAddress,
+    chainId: config.chainId,
+    expirationSec: config.orderExpirationSec,
+    dryRun: config.dryRun,
+  });
+
+  if (config.predictApiKey) {
+    predictClobClient = new PredictClobClient({
+      walletClient,
+      apiBase: config.predictApiBase,
+      apiKey: config.predictApiKey,
+      exchangeAddress: config.predictExchangeAddress,
+      chainId: config.chainId,
+      expirationSec: config.orderExpirationSec,
+      dryRun: config.dryRun,
+    });
+  }
+
+  // Initialize CLOB clients (auth + nonce)
+  (async () => {
+    try {
+      await probableClobClient!.fetchNonce();
+      if (predictClobClient) {
+        await predictClobClient.authenticate();
+        await predictClobClient.fetchNonce();
+      }
+      // Check approvals
+      await probableClobClient!.ensureApprovals(publicClient);
+      if (predictClobClient) await predictClobClient.ensureApprovals(publicClient);
+      log.info("CLOB clients initialized");
+    } catch (err) {
+      log.error("CLOB client init failed", { error: String(err) });
+    }
+  })();
+} else {
+  log.info("Vault execution mode (default)");
+}
+
 // --- AI Matching (optional) ---
 const matchingPipeline = config.openaiApiKey
   ? new MatchingPipeline(
@@ -149,7 +200,22 @@ if (matchingPipeline) {
 
 // --- Execution ---
 const vaultClient = new VaultClient(walletClient, publicClient, config.vaultAddress);
-const executor = new Executor(vaultClient, config, publicClient);
+
+// Build meta resolvers map for CLOB mode
+const metaResolvers = new Map<string, { getMarketMeta: (id: `0x${string}`) => import("./types.js").MarketMeta | undefined }>();
+for (const p of providers) {
+  if ("getMarketMeta" in p && typeof (p as any).getMarketMeta === "function") {
+    metaResolvers.set(p.name, p as any);
+  }
+}
+
+const executor = new Executor(
+  vaultClient,
+  config,
+  publicClient,
+  { probable: probableClobClient, predict: predictClobClient },
+  metaResolvers,
+);
 
 // --- Agent state ---
 let running = false;
@@ -157,6 +223,7 @@ let lastScan = 0;
 let tradesExecuted = 0;
 let opportunities: ArbitOpportunity[] = [];
 let positions: Position[] = [];
+let clobPositions: ClobPosition[] = [];
 let scanTimer: ReturnType<typeof setTimeout> | null = null;
 let yieldStatus: YieldStatus | null = null;
 const startedAt = Date.now();
@@ -166,10 +233,12 @@ const persisted = loadState();
 if (persisted) {
   tradesExecuted = persisted.tradesExecuted;
   positions = persisted.positions;
+  clobPositions = persisted.clobPositions ?? [];
   lastScan = persisted.lastScan;
   log.info("Restored persisted state", {
     tradesExecuted,
     positions: positions.length,
+    clobPositions: clobPositions.length,
     lastScan,
   });
 }
@@ -239,14 +308,22 @@ async function scan(): Promise<void> {
       const actionable = detected.filter((o) => o.spreadBps >= minSpreadBps);
       const fresh = actionable.filter((o) => !isRecentlyTraded(o));
 
-      // Daily loss limit check
-      let vaultBalance = 0n;
-      try { vaultBalance = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
-      const withinLossLimit = checkDailyLoss(vaultBalance);
+      // Daily loss limit check — use EOA balance in CLOB mode, vault balance in vault mode
+      let balanceForLossCheck = 0n;
+      if (config.executionMode === "clob") {
+        try {
+          const eoaBalance = await publicClient.getBalance({ address: account.address });
+          // Convert native balance to USDT equivalent (6 decimals)
+          balanceForLossCheck = (eoaBalance * config.gasToUsdtRate) / BigInt(1e18);
+        } catch { /* balance check may fail */ }
+      } else {
+        try { balanceForLossCheck = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
+      }
+      const withinLossLimit = checkDailyLoss(balanceForLossCheck);
       if (!withinLossLimit) {
         log.warn("Daily loss limit reached, skipping execution", {
           startBalance: dailyStartBalance?.toString(),
-          currentBalance: vaultBalance.toString(),
+          currentBalance: balanceForLossCheck.toString(),
           limit: config.dailyLossLimit.toString(),
         });
       }
@@ -280,9 +357,13 @@ async function scan(): Promise<void> {
         }
 
         try {
-          await executor.executeBest(fresh[0], effectiveMaxSize);
+          const result = await executor.executeBest(fresh[0], effectiveMaxSize);
           tradesExecuted++;
           recordTrade(fresh[0]);
+          // Track CLOB positions
+          if (result && config.executionMode === "clob") {
+            clobPositions.push(result);
+          }
         } catch {
           // Already logged in executor
         }
@@ -365,7 +446,7 @@ async function scan(): Promise<void> {
       lastScan = Date.now();
 
       // Persist state after successful scan
-      saveState({ tradesExecuted, positions, lastScan });
+      saveState({ tradesExecuted, positions, clobPositions, lastScan });
     } catch (err) {
       log.error("Scan error", { error: String(err) });
     }
@@ -405,8 +486,13 @@ function getStatus(): AgentStatus {
       minSpreadBps,
       maxPositionSize: maxPositionSize.toString(),
       scanIntervalMs,
+      executionMode: config.executionMode,
     },
   };
+}
+
+function getClobPositions(): ClobPosition[] {
+  return clobPositions;
 }
 
 function getOpportunities(): ArbitOpportunity[] {
@@ -459,6 +545,7 @@ const app = createServer(
   stopAgent,
   updateConfig,
   config.yieldRotationEnabled ? getYieldStatus : undefined,
+  getClobPositions,
 );
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {

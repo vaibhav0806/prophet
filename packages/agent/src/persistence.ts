@@ -1,13 +1,14 @@
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import { log } from "./logger.js";
-import type { Position } from "./types.js";
+import type { Position, ClobPosition } from "./types.js";
 
 const STATE_FILE = process.env.STATE_FILE_PATH || path.join(process.cwd(), "agent-state.json");
 
 export interface PersistedState {
   tradesExecuted: number;
   positions: Position[];
+  clobPositions: ClobPosition[];
   lastScan: number;
 }
 
@@ -55,6 +56,9 @@ export function loadState(): PersistedState | null {
       tradesExecuted: parsed.tradesExecuted ?? 0,
       positions: Array.isArray(parsed.positions)
         ? parsed.positions.map(revivePosition)
+        : [],
+      clobPositions: Array.isArray(parsed.clobPositions)
+        ? parsed.clobPositions as ClobPosition[]
         : [],
       lastScan: parsed.lastScan ?? 0,
     };

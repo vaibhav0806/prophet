@@ -1,0 +1,476 @@
+import { log } from "../logger.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface DiscoveredMarket {
+  platform: "Probable" | "Predict";
+  id: string;
+  title: string;
+  conditionId: string;
+  yesTokenId: string;
+  noTokenId: string;
+  category?: string;
+  hasLiquidity: boolean;
+}
+
+export interface MarketMatch {
+  probable: DiscoveredMarket;
+  predict: DiscoveredMarket;
+  matchType: "conditionId" | "titleSimilarity";
+  similarity: number;
+  probableMapEntry: { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string };
+  predictMapEntry: { predictMarketId: string; yesTokenId: string; noTokenId: string };
+}
+
+export interface DiscoveryResult {
+  discoveredAt: string;
+  probableMarkets: number;
+  predictMarkets: number;
+  matches: MarketMatch[];
+  probableMarketMap: Record<string, { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }>;
+  predictMarketMap: Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Probable API types (mirrors probable-provider.ts)
+// ---------------------------------------------------------------------------
+
+interface ProbableEvent {
+  id: string;
+  title: string;
+  slug: string;
+  active: boolean;
+  tags: string[];
+  markets: ProbableMarketRaw[];
+}
+
+interface ProbableMarketRaw {
+  id: string;
+  question: string;
+  conditionId?: string;
+  clobTokenIds: string; // JSON string: '["yesTokenId","noTokenId"]'
+  outcomes: string;     // JSON string: '["Yes","No"]'
+  tokens: Array<{ token_id: string; outcome: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Predict API types (mirrors discover-markets.ts)
+// ---------------------------------------------------------------------------
+
+interface PredictOutcome {
+  name: string;
+  indexSet: number; // 1 = YES, 2 = NO
+  onChainId: string;
+}
+
+interface PredictMarketRaw {
+  id: number;
+  title: string;
+  question: string;
+  conditionId: string;
+  outcomes: PredictOutcome[];
+  tradingStatus: string;
+  status: string;
+  categorySlug: string;
+}
+
+interface PredictMarketsListResponse {
+  success: boolean;
+  data: PredictMarketRaw[];
+  cursor?: string;
+}
+
+interface PredictOrderbookResponse {
+  success: boolean;
+  data: {
+    asks: Array<[number, number]>;
+    bids: Array<[number, number]>;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Normalize a title for comparison: lowercase, strip punctuation, collapse
+ * whitespace, trim.
+ */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Jaccard similarity over word sets.  intersection / union of unique words.
+ */
+function jaccardSimilarity(a: string, b: string): number {
+  const wordsA = new Set(normalizeTitle(a).split(" ").filter(Boolean));
+  const wordsB = new Set(normalizeTitle(b).split(" ").filter(Boolean));
+
+  if (wordsA.size === 0 && wordsB.size === 0) return 1;
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+
+  let intersection = 0;
+  for (const w of wordsA) {
+    if (wordsB.has(w)) intersection++;
+  }
+
+  const union = wordsA.size + wordsB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+const SIMILARITY_THRESHOLD = 0.85;
+
+// ---------------------------------------------------------------------------
+// Fetch Probable events (paginated, reuses discoverEvents() pattern)
+// ---------------------------------------------------------------------------
+
+async function fetchProbableMarkets(
+  eventsApiBase: string,
+): Promise<DiscoveredMarket[]> {
+  const PAGE_SIZE = 100;
+  const allEvents: ProbableEvent[] = [];
+  let offset = 0;
+
+  while (true) {
+    const url = `${eventsApiBase}/public/api/v1/events?active=true&limit=${PAGE_SIZE}&offset=${offset}`;
+    let res: Response;
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    } catch (err) {
+      log.error("Probable events fetch failed", { offset, error: String(err) });
+      break;
+    }
+
+    if (!res.ok) {
+      log.error("Probable events API error", { status: res.status, offset });
+      break;
+    }
+
+    const events = (await res.json()) as ProbableEvent[];
+    if (!Array.isArray(events) || events.length === 0) break;
+
+    allEvents.push(...events);
+    log.info("Probable: fetched events page", { offset, count: events.length, total: allEvents.length });
+
+    if (events.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  // Flatten events -> individual markets
+  const discovered: DiscoveredMarket[] = [];
+
+  for (const event of allEvents) {
+    if (!event.markets || !Array.isArray(event.markets)) continue;
+
+    for (const market of event.markets) {
+      // Parse outcomes — must be YES/NO binary
+      let outcomes: string[];
+      try {
+        outcomes = JSON.parse(market.outcomes);
+      } catch {
+        continue;
+      }
+      if (outcomes.length !== 2) continue;
+
+      const hasYesNo =
+        outcomes.some((o) => o.toLowerCase() === "yes") &&
+        outcomes.some((o) => o.toLowerCase() === "no");
+      if (!hasYesNo) continue;
+
+      // Parse clobTokenIds for YES/NO token IDs
+      let tokenIds: string[];
+      try {
+        tokenIds = JSON.parse(market.clobTokenIds);
+      } catch {
+        continue;
+      }
+      if (tokenIds.length !== 2) continue;
+
+      // token_id order matches outcomes order; find YES and NO
+      const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
+      const noIdx = outcomes.findIndex((o) => o.toLowerCase() === "no");
+      if (yesIdx === -1 || noIdx === -1) continue;
+
+      const yesTokenId = tokenIds[yesIdx];
+      const noTokenId = tokenIds[noIdx];
+
+      // conditionId: prefer explicit field, fall back to market id
+      const conditionId = market.conditionId || market.id;
+
+      discovered.push({
+        platform: "Probable",
+        id: market.id,
+        title: market.question || event.title,
+        conditionId,
+        yesTokenId,
+        noTokenId,
+        category: event.tags?.[0],
+        hasLiquidity: true, // Will be refined below if we add orderbook checks
+      });
+    }
+  }
+
+  return discovered;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch Predict markets (paginated, reuses discover-markets.ts pattern)
+// ---------------------------------------------------------------------------
+
+async function fetchPredictMarkets(
+  apiBase: string,
+  apiKey: string,
+): Promise<DiscoveredMarket[]> {
+  const seen = new Map<number, PredictMarketRaw>();
+  let cursor: string | undefined;
+  const MAX_PAGES = 100; // safety cap
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    let path = `/v1/markets?status=OPEN&first=50`;
+    if (cursor) path += `&cursor=${encodeURIComponent(cursor)}`;
+
+    let resp: PredictMarketsListResponse;
+    try {
+      const url = `${apiBase}${path}`;
+      const res = await fetch(url, {
+        headers: { "x-api-key": apiKey },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) {
+        log.error("Predict markets API error", { status: res.status, page });
+        break;
+      }
+      resp = (await res.json()) as PredictMarketsListResponse;
+    } catch (err) {
+      log.error("Predict markets fetch failed", { page, error: String(err) });
+      break;
+    }
+
+    if (!resp.success || !Array.isArray(resp.data)) {
+      log.error("Unexpected Predict markets response", { page });
+      break;
+    }
+
+    for (const m of resp.data) {
+      if (!seen.has(m.id)) seen.set(m.id, m);
+    }
+
+    log.info("Predict: fetched markets page", { page: page + 1, unique: seen.size });
+
+    if (!resp.cursor || resp.data.length < 50) break;
+    cursor = resp.cursor;
+    await sleep(150); // rate limit
+  }
+
+  // Check orderbook liquidity for each market (quick probe)
+  const discovered: DiscoveredMarket[] = [];
+
+  for (const m of seen.values()) {
+    // Must have exactly YES (indexSet=1) and NO (indexSet=2) outcomes
+    const yes = m.outcomes.find((o) => o.indexSet === 1);
+    const no = m.outcomes.find((o) => o.indexSet === 2);
+    if (!yes || !no) continue;
+
+    // Quick liquidity check via orderbook
+    let hasLiquidity = false;
+    try {
+      const obUrl = `${apiBase}/v1/markets/${m.id}/orderbook`;
+      const obRes = await fetch(obUrl, {
+        headers: { "x-api-key": apiKey },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (obRes.ok) {
+        const ob = (await obRes.json()) as PredictOrderbookResponse;
+        if (ob.success && ob.data) {
+          hasLiquidity = ob.data.asks.length > 0 && ob.data.bids.length > 0;
+        }
+      }
+      await sleep(150); // rate limit
+    } catch {
+      // orderbook check is best-effort
+    }
+
+    discovered.push({
+      platform: "Predict",
+      id: String(m.id),
+      title: m.title || m.question,
+      conditionId: m.conditionId,
+      yesTokenId: yes.onChainId,
+      noTokenId: no.onChainId,
+      category: m.categorySlug,
+      hasLiquidity,
+    });
+  }
+
+  return discovered;
+}
+
+// ---------------------------------------------------------------------------
+// Matching
+// ---------------------------------------------------------------------------
+
+function matchMarkets(
+  probable: DiscoveredMarket[],
+  predict: DiscoveredMarket[],
+): MarketMatch[] {
+  const matches: MarketMatch[] = [];
+  const matchedPredictIds = new Set<string>();
+
+  // Pass 1: exact conditionId match
+  const predictByCondition = new Map<string, DiscoveredMarket>();
+  for (const p of predict) {
+    if (p.conditionId) predictByCondition.set(p.conditionId, p);
+  }
+
+  for (const prob of probable) {
+    if (!prob.conditionId) continue;
+    const pred = predictByCondition.get(prob.conditionId);
+    if (!pred) continue;
+
+    matchedPredictIds.add(pred.id);
+    matches.push(buildMatch(prob, pred, "conditionId", 1.0));
+  }
+
+  // Pass 2: title similarity for unmatched markets
+  const unmatchedPredict = predict.filter((p) => !matchedPredictIds.has(p.id));
+
+  for (const prob of probable) {
+    // Skip if this Probable market already has a conditionId match
+    if (matches.some((m) => m.probable.id === prob.id)) continue;
+
+    let bestMatch: DiscoveredMarket | null = null;
+    let bestSimilarity = 0;
+
+    for (const pred of unmatchedPredict) {
+      if (matchedPredictIds.has(pred.id)) continue;
+
+      const sim = jaccardSimilarity(prob.title, pred.title);
+      if (sim > bestSimilarity) {
+        bestSimilarity = sim;
+        bestMatch = pred;
+      }
+    }
+
+    if (bestMatch && bestSimilarity >= SIMILARITY_THRESHOLD) {
+      matchedPredictIds.add(bestMatch.id);
+      matches.push(buildMatch(prob, bestMatch, "titleSimilarity", bestSimilarity));
+    }
+  }
+
+  return matches;
+}
+
+function buildMatch(
+  probable: DiscoveredMarket,
+  predict: DiscoveredMarket,
+  matchType: "conditionId" | "titleSimilarity",
+  similarity: number,
+): MarketMatch {
+  return {
+    probable,
+    predict,
+    matchType,
+    similarity: Math.round(similarity * 10000) / 10000,
+    probableMapEntry: {
+      probableMarketId: probable.id,
+      conditionId: probable.conditionId,
+      yesTokenId: probable.yesTokenId,
+      noTokenId: probable.noTokenId,
+    },
+    predictMapEntry: {
+      predictMarketId: predict.id,
+      yesTokenId: predict.yesTokenId,
+      noTokenId: predict.noTokenId,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function validateMatch(match: MarketMatch): boolean {
+  // Both must have YES/NO tokens
+  if (!match.probable.yesTokenId || !match.probable.noTokenId) return false;
+  if (!match.predict.yesTokenId || !match.predict.noTokenId) return false;
+
+  // Both should have orderbook liquidity
+  if (!match.probable.hasLiquidity || !match.predict.hasLiquidity) return false;
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline entry point
+// ---------------------------------------------------------------------------
+
+export async function runDiscovery(params: {
+  probableEventsApiBase: string;
+  predictApiBase: string;
+  predictApiKey: string;
+}): Promise<DiscoveryResult> {
+  const { probableEventsApiBase, predictApiBase, predictApiKey } = params;
+
+  // Step 1: Fetch Probable markets
+  log.info("Discovery: fetching Probable markets...");
+  let probableMarkets: DiscoveredMarket[] = [];
+  try {
+    probableMarkets = await fetchProbableMarkets(probableEventsApiBase);
+    log.info("Discovery: Probable markets fetched", { count: probableMarkets.length });
+  } catch (err) {
+    log.error("Discovery: Probable fetch failed, skipping", { error: String(err) });
+  }
+
+  // Step 2: Fetch Predict markets
+  log.info("Discovery: fetching Predict markets...");
+  let predictMarkets: DiscoveredMarket[] = [];
+  try {
+    predictMarkets = await fetchPredictMarkets(predictApiBase, predictApiKey);
+    log.info("Discovery: Predict markets fetched", { count: predictMarkets.length });
+  } catch (err) {
+    log.error("Discovery: Predict fetch failed, skipping", { error: String(err) });
+  }
+
+  // Step 3: Match
+  log.info("Discovery: matching markets...");
+  const rawMatches = matchMarkets(probableMarkets, predictMarkets);
+
+  // Step 4: Validate
+  const matches = rawMatches.filter(validateMatch);
+  log.info("Discovery: matching complete", {
+    rawMatches: rawMatches.length,
+    validated: matches.length,
+    droppedByValidation: rawMatches.length - matches.length,
+  });
+
+  // Step 5: Build output maps
+  const probableMarketMap: DiscoveryResult["probableMarketMap"] = {};
+  const predictMarketMap: DiscoveryResult["predictMarketMap"] = {};
+
+  for (const m of matches) {
+    // Key by conditionId (shared identifier)
+    const key = m.probable.conditionId;
+    probableMarketMap[key] = m.probableMapEntry;
+    predictMarketMap[key] = m.predictMapEntry;
+  }
+
+  return {
+    discoveredAt: new Date().toISOString(),
+    probableMarkets: probableMarkets.length,
+    predictMarkets: predictMarkets.length,
+    matches,
+    probableMarketMap,
+    predictMarketMap,
+  };
+}

@@ -34,6 +34,7 @@ describe("persistence", () => {
     const state: PersistedState = {
       tradesExecuted: 5,
       positions: [samplePosition],
+      clobPositions: [],
       lastScan: 1700000000000,
     };
 
@@ -50,6 +51,7 @@ describe("persistence", () => {
     const state: PersistedState = {
       tradesExecuted: 1,
       positions: [samplePosition],
+      clobPositions: [],
       lastScan: 0,
     };
 
@@ -89,6 +91,7 @@ describe("persistence", () => {
     const state: PersistedState = {
       tradesExecuted: 0,
       positions: [],
+      clobPositions: [],
       lastScan: 0,
     };
 
@@ -102,6 +105,7 @@ describe("persistence", () => {
     const state: PersistedState = {
       tradesExecuted: 0,
       positions: [samplePosition],
+      clobPositions: [],
       lastScan: 0,
     };
 

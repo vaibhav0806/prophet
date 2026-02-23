@@ -64,5 +64,44 @@ export interface AgentStatus {
     minSpreadBps: number;
     maxPositionSize: string;
     scanIntervalMs: number;
+    executionMode: ExecutionMode;
   };
+}
+
+// --- CLOB execution types ---
+
+export type ExecutionMode = "vault" | "clob";
+
+export type ClobPositionStatus = "OPEN" | "PARTIAL" | "FILLED" | "CLOSED" | "EXPIRED";
+
+export interface ClobLeg {
+  platform: string;
+  orderId: string;
+  tokenId: string;
+  side: "BUY" | "SELL";
+  price: number;
+  size: number;
+  filled: boolean;
+  filledSize: number;
+  transactionHash?: string;
+}
+
+export interface ClobPosition {
+  id: string;
+  marketId: `0x${string}`;
+  status: ClobPositionStatus;
+  legA: ClobLeg;
+  legB: ClobLeg;
+  totalCost: number;
+  expectedPayout: number;
+  spreadBps: number;
+  openedAt: number;
+  closedAt?: number;
+  pnl?: number;
+}
+
+export interface MarketMeta {
+  conditionId: string;
+  yesTokenId: string;
+  noTokenId: string;
 }

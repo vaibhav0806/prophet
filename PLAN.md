@@ -29,6 +29,14 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **CI/CD** | Done | GitHub Actions: contracts (forge), agent (tsc + vitest), frontend (next build) |
 | **State persistence** | Done | JSON file, auto-restore on restart |
 | **Market discovery scripts** | Done | `discover-markets.ts`, `match-markets.ts` for Predict.fun |
+| **CLOB types + EIP-712 signing** | Done | Shared `ClobOrder` struct, `signOrder()`, `signClobAuth()` via viem `signTypedData` |
+| **Probable CLOB client** | Done | EIP-712 signed orders, POLY_* per-request auth, order/cancel/approvals |
+| **Predict.fun CLOB client** | Done | JWT auth flow, EIP-712 signed orders, 401 re-auth, order/cancel/approvals |
+| **CLOB execution mode** | Done | `EXECUTION_MODE=clob` bypasses vault, EOA signs+places limit orders directly on CLOBs |
+| **Auto-discovery pipeline** | Done | Fetch all markets from both platforms, match by conditionId + title similarity, output market maps |
+| **Auto-discover CLI** | Done | `npx tsx src/scripts/auto-discover.ts [--dry-run] [--save]` |
+| **CLOB positions tracking** | Done | `ClobPosition` lifecycle (OPEN→PARTIAL→FILLED→CLOSED→EXPIRED), persisted to state |
+| **CLOB API endpoints** | Done | `GET /api/clob-positions`, `POST /api/discovery/run` |
 
 ### What's NOT Built
 
@@ -40,9 +48,10 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **BSC mainnet deployment** | Not started | Needs P0 fixes + testnet validation first |
 | **Multi-sig ownership** | Not started | Required for production |
 | **Proxy/upgradeable contracts** | Not started | Decision needed |
-| **Auto-discovery pipeline** | Partial | `discoverEvents()` method added to ProbableProvider; full auto-match + auto-wire pipeline not built |
-| **On-chain trade execution via CLOB** | Not started | Adapters do CTF split/merge but don't place limit orders on Probable/Predict CLOBs |
-| **Predict.fun Cloudflare bypass** | Workaround | REST API blocked by Cloudflare; GraphQL works from browser context only |
+| **CLOB client integration tests** | Not started | Need mocked fetch or testnet; unit tests pass but no HTTP-level tests for probable-client/predict-client |
+| **Testnet order placement** | Not started | Place + cancel test order on BSC testnet (chainId 97) to validate full signing flow |
+| **CLOB order fill polling** | Not started | Poll both orders for fills (60s timeout), cancel unfilled leg on partial fill |
+| **CLOB position redemption** | Not started | Detect market resolution, redeem CTF tokens, update position status to CLOSED |
 
 ### Test Results
 
@@ -52,8 +61,8 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | OpinionAdapter.t.sol | 30 | All passing |
 | PredictAdapter.t.sol | 30 | All passing |
 | ProbableAdapter.t.sol | 35 | All passing |
-| Agent unit tests | 84 | All passing |
-| **Total** | **205** | **All passing** |
+| Agent unit tests | 123 (incl. 39 CLOB/signing/discovery) | All passing |
+| **Total** | **244** | **All passing** |
 
 ### Live API Validation
 
@@ -177,12 +186,18 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 - [x] Contracts: 2-step `setAgent()` with 24h delay (propose/accept/cancel) — `4e335f1`
 - [x] Frontend: warn on missing env vars (throws break `next build` SSG) — `c148a24`
 
-### Phase 2: Execution Path (~2-3 days)
-- [ ] Implement CLOB order placement for Probable (EIP-712 signed orders via API)
-- [ ] Implement CLOB order placement for Predict.fun (signed orders via API)
-- [ ] Handle Predict.fun Cloudflare protection for programmatic API access
-- [ ] Wire adapter `buyOutcome` to actual CLOB orders (not just CTF split/merge)
-- [ ] Auto-discovery pipeline: fetch all events from both platforms, auto-match, auto-wire market maps
+### Phase 2: CLOB Execution & Auto-Discovery ~~(~2-3 days)~~ DONE
+- [x] CLOB types + EIP-712 signing (`clob/types.ts`, `clob/signing.ts`) — shared order struct, `signOrder()`, `signClobAuth()`
+- [x] Probable CLOB client (`clob/probable-client.ts`) — POLY_* auth, order placement, cancel, nonce management, approval checks
+- [x] Predict.fun CLOB client (`clob/predict-client.ts`) — JWT auth flow, order placement with 401 re-auth, approval checks
+- [x] `EXECUTION_MODE=clob` wiring — executor mode switch, EOA signs orders directly (bypasses vault), EOA balance for loss limit
+- [x] Auto-discovery pipeline (`discovery/pipeline.ts`) — fetch both platforms, conditionId match + Jaccard title similarity (>0.85)
+- [x] Auto-discover CLI (`scripts/auto-discover.ts`) — `npx tsx src/scripts/auto-discover.ts [--dry-run] [--save]`
+- [x] CLOB position persistence (`clobPositions` array in state file)
+- [x] API endpoints — `GET /api/clob-positions`, `POST /api/discovery/run`
+- [x] Unit tests — 39 tests (order construction, serialization, constants, title similarity, execution mode)
+- [x] Handle Predict.fun Cloudflare — REST API is NOT blocked (only browser scraping); confirmed working
+- [ ] **Remaining:** CLOB client integration tests (mocked fetch), testnet order placement, fill polling, position redemption
 
 ### Phase 3: BSC Testnet Validation (~2-3 days)
 - [ ] Deploy vault + all 3 adapters to BSC testnet
@@ -253,17 +268,29 @@ Yield Rotation (optional)
   ├── Allocator         ── half-Kelly criterion capital allocation
   └── Rotator           ── rotation suggestions when yield improvement > threshold
 
+CLOB Clients (direct EOA order placement)
+  ├── ClobTypes         ── shared EIP-712 order struct, ClobClient interface
+  ├── Signing           ── buildOrder, signOrder, signClobAuth via viem signTypedData
+  ├── ProbableClobClient── POLY_* per-request auth, order placement, cancel, approvals
+  └── PredictClobClient ── JWT auth flow, order placement, 401 re-auth, approvals
+
 Execution
   ├── VaultClient       ── viem wrapper for ProphitVault (simulate + execute)
-  └── Executor          ── gas check → simulate → execute → track
+  └── Executor          ── mode switch: vault (on-chain) or clob (EOA → CLOB API)
+
+Discovery
+  ├── Pipeline          ── fetch all markets from both platforms, match, output maps
+  └── CLI               ── npx tsx src/scripts/auto-discover.ts [--dry-run] [--save]
 
 API (Hono on :3001)
   ├── GET  /api/status
   ├── GET  /api/opportunities
   ├── GET  /api/positions
+  ├── GET  /api/clob-positions
   ├── GET  /api/yield
   ├── POST /api/agent/start|stop
-  └── POST /api/config
+  ├── POST /api/config
+  └── POST /api/discovery/run
 ```
 
 ### Frontend (Next.js 14, wagmi v2, shadcn/ui, TanStack Query)
@@ -282,7 +309,7 @@ Pages
 
 | Protocol | API | Auth | Chain | Fees | Oracle | Pagination |
 |----------|-----|------|-------|------|--------|------------|
-| **Predict.fun** | `graphql.predict.fun/graphql` | Cloudflare JS challenge | BSC (56) | 200 bps | Custom | Cursor-based, 445 markets |
+| **Predict.fun** | `api.predict.fun` (REST) | `x-api-key` + JWT bearer | BSC (56) | 200 bps | Custom | Cursor-based, 445 markets |
 | **Probable** | Orderbooks: `api.probable.markets`, Events: `market-api.probable.markets` | None (public) | BSC (56) | 0 bps | UMA Optimistic Oracle | Offset-based, limit=100 max, 135 events/468 markets |
 | **Opinion** | `openapi.opinion.trade/openapi` | `apikey` header | BSC (56) | ~1-3% dynamic | Opinion AI | Unknown (blocked on API key) |
 
@@ -292,8 +319,8 @@ All three use **Gnosis Conditional Token Framework (CTF)** — ERC1155 outcome t
 
 | Contract | Probable | Predict.fun | Opinion |
 |----------|----------|-------------|---------|
-| CTF Token | `0x364d05055614B506e2b9A287E4ac34167204cA83` | TBD | `0xAD1a38cEc043e70E83a3eC30443dB285ED10D774` |
-| CTF Exchange | `0x616C31a93769e32781409518FA2A57f3857cDD24` | TBD | TBD |
+| CTF Token | `0x364d05055614B506e2b9A287E4ac34167204cA83` | `0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc` | `0xAD1a38cEc043e70E83a3eC30443dB285ED10D774` |
+| CTF Exchange | `0x616C31a93769e32781409518FA2A57f3857cDD24` | `0x8BC070BEdAB741406F4B1Eb65A72bee27894B689` | TBD |
 | USDT | `0x55d398326f99059fF775485246999027B3197955` | same | same |
 
 ---
@@ -373,10 +400,12 @@ prophit/
         providers/{base,mock-provider,opinion-provider,predict-provider,probable-provider}.ts
         arbitrage/detector.ts
         execution/{vault-client,executor}.ts
+        clob/{types,signing,probable-client,predict-client}.ts
         matching/{embedder,cluster,verifier,risk-assessor,index}.ts
         yield/{scorer,allocator,rotator,types}.ts
+        discovery/pipeline.ts
         api/server.ts
-        scripts/{discover-markets,match-markets}.ts
+        scripts/{discover-markets,match-markets,auto-discover}.ts
     frontend/               # Next.js 14
       src/app/{scanner,positions,agent,unifier,yield,audit}/page.tsx
       src/components/{scanner,positions,agent,unifier,yield,audit,sidebar}.tsx

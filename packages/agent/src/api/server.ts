@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { config } from "../config.js";
-import type { AgentStatus, ArbitOpportunity, Position } from "../types.js";
+import type { AgentStatus, ArbitOpportunity, Position, ClobPosition } from "../types.js";
 import type { YieldStatus } from "../yield/types.js";
+import type { DiscoveryResult } from "../discovery/pipeline.js";
 
 /** Converts bigints to strings for JSON serialization */
 function serializeBigInts<T>(obj: T): unknown {
@@ -32,6 +33,7 @@ export function createServer(
   stopAgent: () => void,
   updateConfig: (update: ConfigUpdate) => void,
   getYieldStatus?: () => YieldStatus | null,
+  getClobPositions?: () => ClobPosition[],
 ): Hono {
   const app = new Hono();
 
@@ -59,6 +61,13 @@ export function createServer(
 
   app.get("/api/positions", (c) => {
     return c.json(serializeBigInts(getPositions()) as unknown[]);
+  });
+
+  app.get("/api/clob-positions", (c) => {
+    if (!getClobPositions) {
+      return c.json([]);
+    }
+    return c.json(getClobPositions());
   });
 
   app.post("/api/agent/start", (c) => {
@@ -89,6 +98,20 @@ export function createServer(
       return c.json({ ok: true });
     } catch (e: any) {
       return c.json({ error: e.message }, 400);
+    }
+  });
+
+  app.post("/api/discovery/run", async (c) => {
+    try {
+      const { runDiscovery } = await import("../discovery/pipeline.js");
+      const result = await runDiscovery({
+        probableEventsApiBase: config.probableEventsApiBase,
+        predictApiBase: config.predictApiBase,
+        predictApiKey: config.predictApiKey,
+      });
+      return c.json(result as unknown as Record<string, unknown>);
+    } catch (e: any) {
+      return c.json({ error: e.message }, 500);
     }
   });
 
