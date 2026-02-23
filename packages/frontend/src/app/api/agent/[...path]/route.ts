@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const isProd = process.env.NODE_ENV === 'production'
-
-if (isProd && !process.env.AGENT_URL) {
-  throw new Error('[Prophit] AGENT_URL is required in production')
-}
-
 const AGENT_URL = process.env.AGENT_URL || 'http://localhost:3001'
 const AGENT_API_KEY = process.env.AGENT_API_KEY || ''
 
 async function proxyRequest(req: NextRequest, path: string) {
+  if (process.env.NODE_ENV === 'production' && !process.env.AGENT_URL) {
+    return NextResponse.json({ error: 'AGENT_URL is not configured' }, { status: 503 })
+  }
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
