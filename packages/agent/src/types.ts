@@ -5,6 +5,21 @@ export interface MarketQuote {
   noPrice: bigint;
   yesLiquidity: bigint;
   noLiquidity: bigint;
+  eventDescription?: string;
+  expiresAt?: number;
+  category?: string;
+}
+
+export interface MatchVerification {
+  match: boolean;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface RiskAssessment {
+  riskScore: number;
+  recommendedSizeMultiplier: number;
+  concerns: string[];
 }
 
 export interface ArbitOpportunity {

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { config } from "../config.js";
 import type { AgentStatus, ArbitOpportunity, Position } from "../types.js";
+import type { YieldStatus } from "../yield/types.js";
 
 /** Converts bigints to strings for JSON serialization */
 function serializeBigInts<T>(obj: T): unknown {
@@ -30,6 +31,7 @@ export function createServer(
   startAgent: () => void,
   stopAgent: () => void,
   updateConfig: (update: ConfigUpdate) => void,
+  getYieldStatus?: () => YieldStatus | null,
 ): Hono {
   const app = new Hono();
 
@@ -67,6 +69,17 @@ export function createServer(
   app.post("/api/agent/stop", (c) => {
     stopAgent();
     return c.json({ ok: true });
+  });
+
+  app.get("/api/yield", (c) => {
+    if (!getYieldStatus) {
+      return c.json({ error: "yield rotation not enabled" }, 404);
+    }
+    const status = getYieldStatus();
+    if (!status) {
+      return c.json({ error: "no yield data yet" }, 404);
+    }
+    return c.json(serializeBigInts(status) as Record<string, unknown>);
   });
 
   app.post("/api/config", async (c) => {

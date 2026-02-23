@@ -1,0 +1,678 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Test, console2} from "forge-std/Test.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IConditionalTokens} from "../src/interfaces/IConditionalTokens.sol";
+import {IProbableRouter, IProbablePool} from "../src/interfaces/IProbableRouter.sol";
+import {ProbableAdapter} from "../src/adapters/ProbableAdapter.sol";
+import {MockUSDT} from "../src/mocks/MockUSDT.sol";
+
+// --- Mock outcome token (ERC-20 wrapper for YES/NO positions) ---
+
+contract MockOutcomeToken is ERC20 {
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function burn(address from, uint256 amount) external {
+        _burn(from, amount);
+    }
+}
+
+// --- Mock CPMM Pool ---
+
+contract MockProbablePool is IProbablePool {
+    MockOutcomeToken public _yesToken;
+    MockOutcomeToken public _noToken;
+    uint256 public _yesReserve;
+    uint256 public _noReserve;
+
+    constructor(address yes, address no) {
+        _yesToken = MockOutcomeToken(yes);
+        _noToken = MockOutcomeToken(no);
+    }
+
+    function yesReserve() external view override returns (uint256) {
+        return _yesReserve;
+    }
+
+    function noReserve() external view override returns (uint256) {
+        return _noReserve;
+    }
+
+    function yesToken() external view override returns (address) {
+        return address(_yesToken);
+    }
+
+    function noToken() external view override returns (address) {
+        return address(_noToken);
+    }
+
+    function getReserves() external view override returns (uint256 yesRes, uint256 noRes) {
+        return (_yesReserve, _noReserve);
+    }
+
+    // Test helper: set reserves
+    function setReserves(uint256 yesRes, uint256 noRes) external {
+        _yesReserve = yesRes;
+        _noReserve = noRes;
+    }
+}
+
+// --- Mock Router ---
+
+contract MockProbableRouter is IProbableRouter {
+    // Fixed output ratio for simplicity: output = input * outputRate / 10000
+    uint256 public outputRate = 9500; // 95% by default (simulates some slippage)
+
+    function setOutputRate(uint256 rate) external {
+        outputRate = rate;
+    }
+
+    function swap(
+        address pool,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address to,
+        uint256 /* deadline */
+    ) external override returns (uint256 amountOut) {
+        amountOut = (amountIn * outputRate) / 10000;
+        require(amountOut >= amountOutMin, "insufficient output");
+
+        // Pull input tokens from caller
+        IERC20(tokenIn).transferFrom(msg.sender, pool, amountIn);
+
+        // Determine output token
+        MockProbablePool p = MockProbablePool(pool);
+        address tokenOut;
+        if (tokenIn == p.yesToken()) {
+            tokenOut = p.noToken();
+        } else {
+            tokenOut = p.yesToken();
+        }
+
+        // Mint output tokens to recipient (mock: pool has infinite liquidity)
+        MockOutcomeToken(tokenOut).mint(to, amountOut);
+    }
+
+    function getAmountOut(
+        address, /* pool */
+        address, /* tokenIn */
+        uint256 amountIn
+    ) external view override returns (uint256 amountOut) {
+        amountOut = (amountIn * outputRate) / 10000;
+    }
+}
+
+// --- Mock Conditional Tokens (same pattern as Opinion/Predict tests) ---
+
+contract MockConditionalTokens is IConditionalTokens {
+    IERC20 public collateral;
+
+    mapping(bytes32 => mapping(uint256 => uint256)) internal _payoutNumerators;
+    mapping(bytes32 => uint256) internal _payoutDenominator;
+    mapping(uint256 => mapping(address => uint256)) internal _balances;
+
+    constructor(address _collateral) {
+        collateral = IERC20(_collateral);
+    }
+
+    function splitPosition(
+        IERC20 collateralToken,
+        bytes32,
+        bytes32 conditionId,
+        uint256[] calldata partition,
+        uint256 amount
+    ) external override {
+        collateralToken.transferFrom(msg.sender, address(this), amount);
+
+        bytes32 yesCollId = getCollectionId(bytes32(0), conditionId, partition[0]);
+        bytes32 noCollId = getCollectionId(bytes32(0), conditionId, partition[1]);
+        uint256 yesPos = getPositionId(collateralToken, yesCollId);
+        uint256 noPos = getPositionId(collateralToken, noCollId);
+
+        _balances[yesPos][msg.sender] += amount;
+        _balances[noPos][msg.sender] += amount;
+    }
+
+    function mergePositions(
+        IERC20 collateralToken,
+        bytes32,
+        bytes32 conditionId,
+        uint256[] calldata partition,
+        uint256 amount
+    ) external override {
+        bytes32 yesCollId = getCollectionId(bytes32(0), conditionId, partition[0]);
+        bytes32 noCollId = getCollectionId(bytes32(0), conditionId, partition[1]);
+        uint256 yesPos = getPositionId(collateralToken, yesCollId);
+        uint256 noPos = getPositionId(collateralToken, noCollId);
+
+        require(_balances[yesPos][msg.sender] >= amount, "insufficient YES");
+        require(_balances[noPos][msg.sender] >= amount, "insufficient NO");
+
+        _balances[yesPos][msg.sender] -= amount;
+        _balances[noPos][msg.sender] -= amount;
+
+        collateralToken.transfer(msg.sender, amount);
+    }
+
+    function redeemPositions(
+        IERC20 collateralToken,
+        bytes32,
+        bytes32 conditionId,
+        uint256[] calldata indexSets
+    ) external override {
+        uint256 denom = _payoutDenominator[conditionId];
+        require(denom > 0, "not resolved");
+
+        uint256 totalPayout;
+        for (uint256 i = 0; i < indexSets.length; i++) {
+            bytes32 collId = getCollectionId(bytes32(0), conditionId, indexSets[i]);
+            uint256 posId = getPositionId(collateralToken, collId);
+            uint256 bal = _balances[posId][msg.sender];
+            if (bal > 0) {
+                uint256 payout = (bal * _payoutNumerators[conditionId][i]) / denom;
+                totalPayout += payout;
+                _balances[posId][msg.sender] = 0;
+            }
+        }
+
+        if (totalPayout > 0) {
+            collateralToken.transfer(msg.sender, totalPayout);
+        }
+    }
+
+    function getConditionId(address oracle, bytes32 questionId, uint256 outcomeSlotCount) external pure override returns (bytes32) {
+        return keccak256(abi.encodePacked(oracle, questionId, outcomeSlotCount));
+    }
+
+    function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) public pure override returns (bytes32) {
+        return keccak256(abi.encodePacked(parentCollectionId, conditionId, indexSet));
+    }
+
+    function getPositionId(IERC20 collateralToken, bytes32 collectionId) public pure override returns (uint256) {
+        return uint256(keccak256(abi.encodePacked(collateralToken, collectionId)));
+    }
+
+    function payoutNumerators(bytes32 conditionId, uint256 index) external view override returns (uint256) {
+        return _payoutNumerators[conditionId][index];
+    }
+
+    function payoutDenominator(bytes32 conditionId) external view override returns (uint256) {
+        return _payoutDenominator[conditionId];
+    }
+
+    function balanceOf(address owner, uint256 positionId) external view override returns (uint256) {
+        return _balances[positionId][owner];
+    }
+
+    // --- Test helpers ---
+
+    function resolve(bytes32 conditionId, bool yesWins) external {
+        _payoutDenominator[conditionId] = 1;
+        if (yesWins) {
+            _payoutNumerators[conditionId][0] = 1;
+            _payoutNumerators[conditionId][1] = 0;
+        } else {
+            _payoutNumerators[conditionId][0] = 0;
+            _payoutNumerators[conditionId][1] = 1;
+        }
+    }
+}
+
+// --- Test Contract ---
+
+contract ProbableAdapterTest is Test {
+    ProbableAdapter adapter;
+    MockUSDT usdt;
+    MockConditionalTokens ctf;
+    MockProbableRouter router;
+    MockProbablePool pool;
+    MockOutcomeToken yesToken;
+    MockOutcomeToken noToken;
+
+    address owner = address(this);
+    address vault = address(0xA1);
+    address rando = address(0xB2);
+
+    bytes32 marketId = keccak256("PROBABLE-MARKET-1");
+    bytes32 conditionId = keccak256("CONDITION-1");
+
+    // Market without AMM pool (CTF-direct mode)
+    bytes32 directMarketId = keccak256("PROBABLE-MARKET-DIRECT");
+    bytes32 directConditionId = keccak256("CONDITION-DIRECT");
+
+    function setUp() public {
+        usdt = new MockUSDT();
+        ctf = new MockConditionalTokens(address(usdt));
+        router = new MockProbableRouter();
+        yesToken = new MockOutcomeToken("YES", "YES");
+        noToken = new MockOutcomeToken("NO", "NO");
+        pool = new MockProbablePool(address(yesToken), address(noToken));
+
+        // Set pool reserves (50/50 = $0.50 each)
+        pool.setReserves(1_000_000e6, 1_000_000e6);
+
+        adapter = new ProbableAdapter(address(ctf), address(usdt), address(router));
+
+        // Add vault as approved caller
+        adapter.addCaller(vault);
+
+        // Register market with AMM pool
+        adapter.registerMarket(marketId, conditionId, address(pool));
+
+        // Register market without AMM pool (CTF-direct fallback)
+        adapter.registerMarket(directMarketId, directConditionId, address(0));
+
+        // Fund CTF with collateral for merges/redemptions
+        usdt.mint(address(ctf), 1_000_000e6);
+
+        // Fund vault
+        usdt.mint(vault, 100_000e6);
+    }
+
+    // ======== Constructor ========
+
+    function test_constructor_zeroCTF() public {
+        vm.expectRevert("zero ctf");
+        new ProbableAdapter(address(0), address(usdt), address(router));
+    }
+
+    function test_constructor_zeroCollateral() public {
+        vm.expectRevert("zero collateral");
+        new ProbableAdapter(address(ctf), address(0), address(router));
+    }
+
+    function test_constructor_zeroRouter() public {
+        vm.expectRevert("zero router");
+        new ProbableAdapter(address(ctf), address(usdt), address(0));
+    }
+
+    // ======== Access Control ========
+
+    function test_addCaller() public {
+        address newCaller = address(0xC3);
+        adapter.addCaller(newCaller);
+        assertTrue(adapter.approvedCallers(newCaller));
+    }
+
+    function test_addCaller_zeroAddress() public {
+        vm.expectRevert("zero address");
+        adapter.addCaller(address(0));
+    }
+
+    function test_addCaller_onlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        adapter.addCaller(address(0xC3));
+    }
+
+    function test_removeCaller() public {
+        adapter.addCaller(address(0xC3));
+        assertTrue(adapter.approvedCallers(address(0xC3)));
+        adapter.removeCaller(address(0xC3));
+        assertFalse(adapter.approvedCallers(address(0xC3)));
+    }
+
+    function test_onlyApproved_buyOutcome() public {
+        vm.prank(rando);
+        vm.expectRevert("not approved");
+        adapter.buyOutcome(marketId, true, 100e6);
+    }
+
+    function test_onlyApproved_sellOutcome() public {
+        vm.prank(rando);
+        vm.expectRevert("not approved");
+        adapter.sellOutcome(marketId, true, 100e6);
+    }
+
+    function test_onlyApproved_redeem() public {
+        ctf.resolve(conditionId, true);
+        vm.prank(rando);
+        vm.expectRevert("not approved");
+        adapter.redeem(marketId);
+    }
+
+    function test_ownerCanCallWithoutBeingApproved() public {
+        usdt.mint(owner, 100e6);
+        usdt.approve(address(adapter), 100e6);
+        // Owner using the CTF-direct market (no AMM complexity)
+        uint256 shares = adapter.buyOutcome(directMarketId, true, 100e6);
+        assertEq(shares, 100e6);
+    }
+
+    // ======== Market Registration ========
+
+    function test_registerMarket() public {
+        bytes32 mId = keccak256("NEW-MARKET");
+        bytes32 cId = keccak256("NEW-CONDITION");
+        adapter.registerMarket(mId, cId, address(pool));
+
+        (bytes32 storedConditionId, uint256 yesPositionId, uint256 noPositionId, address storedPool, bool registered, bool redeemed) =
+            adapter.markets(mId);
+
+        assertTrue(registered);
+        assertFalse(redeemed);
+        assertEq(storedConditionId, cId);
+        assertTrue(yesPositionId != 0);
+        assertTrue(noPositionId != 0);
+        assertTrue(yesPositionId != noPositionId);
+        assertEq(storedPool, address(pool));
+    }
+
+    function test_registerMarket_noPool() public {
+        bytes32 mId = keccak256("NO-POOL-MARKET");
+        bytes32 cId = keccak256("NO-POOL-CONDITION");
+        adapter.registerMarket(mId, cId, address(0));
+
+        (, , , address storedPool, bool registered, ) = adapter.markets(mId);
+        assertTrue(registered);
+        assertEq(storedPool, address(0));
+    }
+
+    function test_registerMarket_onlyOwner() public {
+        vm.prank(vault);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, vault));
+        adapter.registerMarket(keccak256("x"), keccak256("y"), address(0));
+    }
+
+    function test_setPool() public {
+        address newPool = address(0xDEAD);
+        adapter.setPool(marketId, newPool);
+
+        (, , , address storedPool, , ) = adapter.markets(marketId);
+        assertEq(storedPool, newPool);
+    }
+
+    function test_setPool_notRegistered() public {
+        vm.expectRevert("market not registered");
+        adapter.setPool(keccak256("nonexistent"), address(0xDEAD));
+    }
+
+    // ======== Slippage ========
+
+    function test_setSlippage() public {
+        adapter.setSlippage(200);
+        assertEq(adapter.slippageBps(), 200);
+    }
+
+    function test_setSlippage_tooHigh() public {
+        vm.expectRevert("slippage too high");
+        adapter.setSlippage(1001);
+    }
+
+    function test_setSlippage_onlyOwner() public {
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        adapter.setSlippage(200);
+    }
+
+    // ======== Quotes (AMM-based) ========
+
+    function test_getQuote_withPool() public {
+        ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
+
+        // 50/50 reserves => 0.5e18 each
+        assertEq(q.yesPrice, 0.5e18);
+        assertEq(q.noPrice, 0.5e18);
+        assertEq(q.yesLiquidity, 1_000_000e6);
+        assertEq(q.noLiquidity, 1_000_000e6);
+        assertFalse(q.resolved);
+    }
+
+    function test_getQuote_skewedReserves() public {
+        // 30% YES / 70% NO => yesPrice = 0.7e18, noPrice = 0.3e18
+        pool.setReserves(300_000e6, 700_000e6);
+
+        ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
+        assertEq(q.yesPrice, 0.7e18);
+        assertEq(q.noPrice, 0.3e18);
+    }
+
+    function test_getQuote_noPool() public {
+        ProbableAdapterQuoteHelper.MarketQuote memory q = ProbableAdapterQuoteHelper.getQuote(adapter, directMarketId);
+
+        // No pool => all zeros
+        assertEq(q.yesPrice, 0);
+        assertEq(q.noPrice, 0);
+        assertEq(q.yesLiquidity, 0);
+        assertEq(q.noLiquidity, 0);
+        assertFalse(q.resolved);
+    }
+
+    function test_getQuote_reflectsResolution() public {
+        ProbableAdapterQuoteHelper.MarketQuote memory q1 = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
+        assertFalse(q1.resolved);
+
+        ctf.resolve(conditionId, true);
+
+        ProbableAdapterQuoteHelper.MarketQuote memory q2 = ProbableAdapterQuoteHelper.getQuote(adapter, marketId);
+        assertTrue(q2.resolved);
+    }
+
+    // ======== CTF-Direct Buy (no pool, same as Opinion/Predict) ========
+
+    function test_buyOutcome_ctfDirect_yes() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), amount);
+        uint256 shares = adapter.buyOutcome(directMarketId, true, amount);
+        vm.stopPrank();
+
+        assertEq(shares, amount);
+        assertEq(adapter.yesBalance(directMarketId), amount);
+        assertEq(adapter.noBalance(directMarketId), 0);
+        assertEq(adapter.noInventory(directMarketId), amount);
+    }
+
+    function test_buyOutcome_ctfDirect_no() public {
+        uint256 amount = 50e6;
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), amount);
+        uint256 shares = adapter.buyOutcome(directMarketId, false, amount);
+        vm.stopPrank();
+
+        assertEq(shares, amount);
+        assertEq(adapter.noBalance(directMarketId), amount);
+        assertEq(adapter.yesInventory(directMarketId), amount);
+    }
+
+    function test_buyOutcome_ctfDirect_usesInventory() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+
+        // Buy YES — creates NO inventory
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, true, amount);
+        assertEq(adapter.noInventory(directMarketId), amount);
+
+        // Buy NO — uses NO inventory
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, false, amount);
+        vm.stopPrank();
+
+        assertEq(adapter.noInventory(directMarketId), 0);
+        assertEq(adapter.yesBalance(directMarketId), amount);
+        assertEq(adapter.noBalance(directMarketId), amount);
+    }
+
+    function test_buyOutcome_marketNotRegistered() public {
+        vm.prank(vault);
+        vm.expectRevert("market not registered");
+        adapter.buyOutcome(keccak256("NONEXISTENT"), true, 100e6);
+    }
+
+    function test_buyOutcome_marketResolved() public {
+        ctf.resolve(directConditionId, true);
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), 100e6);
+        vm.expectRevert("market resolved");
+        adapter.buyOutcome(directMarketId, true, 100e6);
+        vm.stopPrank();
+    }
+
+    // ======== CTF-Direct Sell ========
+
+    function test_sellOutcome_ctfDirect() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, true, amount);
+
+        uint256 balBefore = usdt.balanceOf(vault);
+        uint256 payout = adapter.sellOutcome(directMarketId, true, amount);
+        uint256 balAfter = usdt.balanceOf(vault);
+        vm.stopPrank();
+
+        assertEq(payout, amount);
+        assertEq(balAfter - balBefore, amount);
+        assertEq(adapter.yesBalance(directMarketId), 0);
+        assertEq(adapter.noInventory(directMarketId), 0);
+    }
+
+    function test_sellOutcome_insufficientBalance() public {
+        vm.prank(vault);
+        vm.expectRevert("insufficient balance");
+        adapter.sellOutcome(directMarketId, true, 100e6);
+    }
+
+    function test_sellOutcome_insufficientInventory() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, true, amount);
+
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, false, amount);
+
+        vm.expectRevert("insufficient inventory to merge");
+        adapter.sellOutcome(directMarketId, true, amount);
+        vm.stopPrank();
+    }
+
+    // ======== Redeem ========
+
+    function test_redeem_yesWins() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, true, amount);
+        vm.stopPrank();
+
+        ctf.resolve(directConditionId, true);
+
+        vm.prank(vault);
+        uint256 payout = adapter.redeem(directMarketId);
+
+        assertEq(payout, amount);
+        assertEq(adapter.yesBalance(directMarketId), 0);
+        assertEq(adapter.noBalance(directMarketId), 0);
+    }
+
+    function test_redeem_noWins() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, false, amount);
+        vm.stopPrank();
+
+        ctf.resolve(directConditionId, false);
+
+        vm.prank(vault);
+        uint256 payout = adapter.redeem(directMarketId);
+
+        assertEq(payout, amount);
+    }
+
+    function test_redeem_onlyOnce() public {
+        uint256 amount = 100e6;
+        vm.startPrank(vault);
+        usdt.approve(address(adapter), amount);
+        adapter.buyOutcome(directMarketId, true, amount);
+        vm.stopPrank();
+
+        ctf.resolve(directConditionId, true);
+
+        vm.prank(vault);
+        uint256 payout1 = adapter.redeem(directMarketId);
+        assertEq(payout1, amount);
+
+        vm.prank(vault);
+        uint256 payout2 = adapter.redeem(directMarketId);
+        assertEq(payout2, 0);
+    }
+
+    function test_redeem_notResolved() public {
+        vm.prank(vault);
+        vm.expectRevert("not resolved");
+        adapter.redeem(directMarketId);
+    }
+
+    // ======== isResolved ========
+
+    function test_isResolved() public {
+        assertFalse(adapter.isResolved(marketId));
+        ctf.resolve(conditionId, true);
+        assertTrue(adapter.isResolved(marketId));
+    }
+
+    function test_isResolved_unregisteredMarket() public {
+        assertFalse(adapter.isResolved(keccak256("NONEXISTENT")));
+    }
+
+    // ======== Ownable2Step ========
+
+    function test_transferOwnership_twoStep() public {
+        address newOwner = address(0xBEEF);
+        adapter.transferOwnership(newOwner);
+        assertEq(adapter.owner(), address(this));
+        vm.prank(newOwner);
+        adapter.acceptOwnership();
+        assertEq(adapter.owner(), newOwner);
+    }
+
+    function test_transferOwnership_pendingOwnerOnly() public {
+        address newOwner = address(0xBEEF);
+        adapter.transferOwnership(newOwner);
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        adapter.acceptOwnership();
+    }
+
+    // ======== ERC1155 Receiver ========
+
+    function test_supportsInterface_erc1155Receiver() public {
+        // IERC1155Receiver interface ID = 0x4e2312e0
+        assertTrue(adapter.supportsInterface(0x4e2312e0));
+    }
+
+    function test_onERC1155Received() public {
+        bytes4 selector = adapter.onERC1155Received(address(0), address(0), 0, 0, "");
+        assertEq(selector, bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)")));
+    }
+}
+
+// Helper to avoid import issues with the MarketQuote struct
+library ProbableAdapterQuoteHelper {
+    struct MarketQuote {
+        bytes32 marketId;
+        uint256 yesPrice;
+        uint256 noPrice;
+        uint256 yesLiquidity;
+        uint256 noLiquidity;
+        bool resolved;
+    }
+
+    function getQuote(ProbableAdapter adapter, bytes32 marketId) internal view returns (MarketQuote memory q) {
+        (bytes32 mid, uint256 yp, uint256 np, uint256 yl, uint256 nl, bool res) =
+            abi.decode(abi.encode(adapter.getQuote(marketId)), (bytes32, uint256, uint256, uint256, uint256, bool));
+        q = MarketQuote(mid, yp, np, yl, nl, res);
+    }
+}

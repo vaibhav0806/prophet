@@ -52,6 +52,18 @@ export const config = {
   predictMarketMap: process.env.PREDICT_MARKET_MAP
     ? JSON.parse(process.env.PREDICT_MARKET_MAP) as Record<string, { predictMarketId: string; yesTokenId: string; noTokenId: string }>
     : undefined,
+  openaiApiKey: process.env.OPENAI_API_KEY || "",
+  matchingSimilarityThreshold: Number(process.env.MATCHING_SIMILARITY_THRESHOLD || "0.85"),
+  matchingConfidenceThreshold: Number(process.env.MATCHING_CONFIDENCE_THRESHOLD || "0.90"),
+  yieldRotationEnabled: process.env.YIELD_ROTATION_ENABLED === "true",
+  minYieldImprovementBps: Number(process.env.MIN_YIELD_IMPROVEMENT_BPS ?? "200"),
+  probableAdapterAddress: (process.env.PROBABLE_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
+  probableMarketIds: process.env.PROBABLE_MARKET_IDS
+    ? (JSON.parse(process.env.PROBABLE_MARKET_IDS) as `0x${string}`[])
+    : undefined,
+  probablePoolMap: process.env.PROBABLE_POOL_MAP
+    ? JSON.parse(process.env.PROBABLE_POOL_MAP) as Record<string, `0x${string}`>
+    : undefined,
 } as const;
 
 if (!config.apiKey) {

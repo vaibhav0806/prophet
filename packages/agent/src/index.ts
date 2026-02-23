@@ -7,12 +7,17 @@ import { OpinionProvider } from "./providers/opinion-provider.js";
 import { PredictProvider } from "./providers/predict-provider.js";
 import type { MarketProvider } from "./providers/base.js";
 import { detectArbitrage } from "./arbitrage/detector.js";
+import { MatchingPipeline } from "./matching/index.js";
 import { VaultClient } from "./execution/vault-client.js";
 import { Executor } from "./execution/executor.js";
 import { createServer } from "./api/server.js";
 import { log } from "./logger.js";
 import { loadState, saveState } from "./persistence.js";
-import type { ArbitOpportunity, Position, AgentStatus } from "./types.js";
+import type { ArbitOpportunity, MarketQuote, Position, AgentStatus } from "./types.js";
+import { scorePositions } from "./yield/scorer.js";
+import { allocateCapital } from "./yield/allocator.js";
+import { checkRotations } from "./yield/rotator.js";
+import type { YieldStatus } from "./yield/types.js";
 
 // --- Viem clients ---
 const account = privateKeyToAccount(config.privateKey);
@@ -80,6 +85,21 @@ if (config.chainId === 31337) {
   log.warn("Running on local devnet (chainId 31337). Set CHAIN_ID for production.");
 }
 
+// --- AI Matching (optional) ---
+const matchingPipeline = config.openaiApiKey
+  ? new MatchingPipeline(
+      config.openaiApiKey,
+      config.matchingSimilarityThreshold,
+      config.matchingConfidenceThreshold,
+    )
+  : null;
+
+if (matchingPipeline) {
+  log.info("AI semantic matching enabled");
+} else {
+  log.info("AI semantic matching disabled (no OPENAI_API_KEY)");
+}
+
 // --- Execution ---
 const vaultClient = new VaultClient(walletClient, publicClient, config.vaultAddress);
 const executor = new Executor(vaultClient, config, publicClient);
@@ -91,6 +111,7 @@ let tradesExecuted = 0;
 let opportunities: ArbitOpportunity[] = [];
 let positions: Position[] = [];
 let scanTimer: ReturnType<typeof setTimeout> | null = null;
+let yieldStatus: YieldStatus | null = null;
 const startedAt = Date.now();
 
 // Load persisted state
@@ -127,8 +148,35 @@ async function scan(): Promise<void> {
       const allQuotes = (await Promise.all(providers.map((p) => p.fetchQuotes()))).flat();
       log.info("Fetched quotes", { count: allQuotes.length });
 
+      // AI semantic matching: discover equivalent events across protocols
+      let matchedQuotes: MarketQuote[] = allQuotes;
+      if (matchingPipeline) {
+        try {
+          const clusters = await matchingPipeline.matchQuotes(allQuotes);
+          if (clusters.length > 0) {
+            // Assign a shared synthetic marketId to each verified cluster
+            // so detectArbitrage can group them together
+            const syntheticQuotes: MarketQuote[] = [];
+            for (let ci = 0; ci < clusters.length; ci++) {
+              const syntheticId = (`0x${"ee".repeat(31)}${ci.toString(16).padStart(2, "0")}`) as `0x${string}`;
+              for (const q of clusters[ci].quotes) {
+                syntheticQuotes.push({ ...q, marketId: syntheticId });
+              }
+            }
+            // Include both original quotes (for exact-match) and synthetic ones (for semantic-match)
+            matchedQuotes = [...allQuotes, ...syntheticQuotes];
+            log.info("AI matching found verified clusters", {
+              clusterCount: clusters.length,
+              syntheticQuotes: syntheticQuotes.length,
+            });
+          }
+        } catch (err) {
+          log.error("AI matching failed, falling back to exact-match", { error: String(err) });
+        }
+      }
+
       // Detect arbitrage
-      const detected = detectArbitrage(allQuotes);
+      const detected = detectArbitrage(matchedQuotes);
       opportunities = detected;
 
       // Filter by minSpreadBps
@@ -143,8 +191,27 @@ async function scan(): Promise<void> {
           bestProtocolB: actionable[0].protocolB,
         });
 
+        // LLM risk assessment (if AI matching is enabled)
+        let effectiveMaxSize = maxPositionSize;
+        if (matchingPipeline) {
+          try {
+            const risk = await matchingPipeline.assessRisk(actionable[0], allQuotes);
+            const sizeMultiplier = BigInt(Math.floor(risk.recommendedSizeMultiplier * 100));
+            effectiveMaxSize = (maxPositionSize * sizeMultiplier) / 100n;
+            log.info("Risk-adjusted position size", {
+              riskScore: risk.riskScore,
+              multiplier: risk.recommendedSizeMultiplier,
+              originalMax: maxPositionSize.toString(),
+              adjustedMax: effectiveMaxSize.toString(),
+              concerns: risk.concerns,
+            });
+          } catch (err) {
+            log.error("Risk assessment failed, using default size", { error: String(err) });
+          }
+        }
+
         try {
-          await executor.executeBest(actionable[0], maxPositionSize);
+          await executor.executeBest(actionable[0], effectiveMaxSize);
           tradesExecuted++;
         } catch {
           // Already logged in executor
@@ -170,6 +237,59 @@ async function scan(): Promise<void> {
         }
       } catch (err) {
         log.error("Error closing resolved positions", { error: String(err) });
+      }
+
+      // --- Yield rotation ---
+      if (config.yieldRotationEnabled) {
+        try {
+          const openPositions = positions.filter((p) => !p.closed);
+          const scored = scorePositions(openPositions);
+
+          let vaultBalance = 0n;
+          try {
+            vaultBalance = await vaultClient.getVaultBalance();
+          } catch {
+            // Vault may not be available
+          }
+
+          const allocationPlan = allocateCapital(vaultBalance, opportunities, maxPositionSize);
+
+          // Estimate gas cost for rotation check
+          const gasCostEstimate = config.gasToUsdtRate * 400_000n / BigInt(1e18);
+          const rotationSuggestions = checkRotations(
+            scored,
+            opportunities,
+            gasCostEstimate,
+            config.minYieldImprovementBps,
+          );
+
+          // Compute totals
+          let totalDeployed = 0n;
+          let weightedSum = 0;
+          for (const sp of scored) {
+            const cost = sp.position.costA + sp.position.costB;
+            totalDeployed += cost;
+            weightedSum += sp.annualizedYield * Number(cost);
+          }
+          const weightedAvgYield = totalDeployed > 0n ? weightedSum / Number(totalDeployed) : 0;
+
+          yieldStatus = {
+            scoredPositions: scored,
+            allocationPlan,
+            rotationSuggestions,
+            totalDeployed: totalDeployed.toString(),
+            weightedAvgYield,
+          };
+
+          if (rotationSuggestions.length > 0) {
+            log.info("Yield rotation suggestions", {
+              count: rotationSuggestions.length,
+              bestImprovement: rotationSuggestions[0].yieldImprovement,
+            });
+          }
+        } catch (err) {
+          log.error("Yield rotation error", { error: String(err) });
+        }
       }
 
       lastScan = Date.now();
@@ -227,6 +347,10 @@ function getPositions(): Position[] {
   return positions;
 }
 
+function getYieldStatus(): YieldStatus | null {
+  return yieldStatus;
+}
+
 function updateConfig(update: {
   minSpreadBps?: number;
   maxPositionSize?: string;
@@ -264,6 +388,7 @@ const app = createServer(
   startAgent,
   stopAgent,
   updateConfig,
+  config.yieldRotationEnabled ? getYieldStatus : undefined,
 );
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {

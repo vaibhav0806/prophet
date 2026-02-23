@@ -23,7 +23,10 @@ export const metadata: Metadata = {
 
 const navItems = [
   { href: "/scanner", label: "Scanner" },
+  { href: "/unifier", label: "Unifier" },
   { href: "/positions", label: "Positions" },
+  { href: "/yield", label: "Yield" },
+  { href: "/audit", label: "Audit Trail" },
   { href: "/agent", label: "Agent" },
 ];
 
