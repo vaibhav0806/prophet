@@ -71,8 +71,12 @@ export function createServer(
 
   app.post("/api/config", async (c) => {
     const body = await c.req.json<ConfigUpdate>();
-    updateConfig(body);
-    return c.json({ ok: true });
+    try {
+      updateConfig(body);
+      return c.json({ ok: true });
+    } catch (e: any) {
+      return c.json({ error: e.message }, 400);
+    }
   });
 
   return app;

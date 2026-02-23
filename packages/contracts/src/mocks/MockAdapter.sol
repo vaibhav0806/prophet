@@ -75,7 +75,7 @@ contract MockAdapter is IProtocolAdapter {
         // Transfer USDT from caller
         usdt.safeTransferFrom(msg.sender, address(this), amount);
 
-        // shares = amount / price (both 18 decimals, so shares in 18 decimals)
+        // shares = amount * 1e18 / price. Result is in USDT decimals (e.g. 6 decimals).
         shares = (amount * 1e18) / price;
 
         if (buyYes) {
@@ -122,7 +122,7 @@ contract MockAdapter is IProtocolAdapter {
             noShares[marketId][msg.sender] = 0;
         }
 
-        // Each winning share redeems at $1.00 (1e18)
+        // Each winning share redeems at $1.00 in USDT decimals
         payout = winningShares;
         if (payout > 0) {
             usdt.safeTransfer(msg.sender, payout);

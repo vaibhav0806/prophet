@@ -23,6 +23,24 @@ export class Executor {
       return;
     }
 
+    // Estimate gas cost for profitability check
+    try {
+      const gasPrice = await this.vaultClient.publicClient.getGasPrice();
+      // openPosition typically uses ~400k gas
+      const estimatedGasCost = gasPrice * 400_000n;
+
+      // Convert gas cost (in native token wei) to approximate USDT value
+      // gasToUsdtRate = native token price in 6-decimal USDT (e.g., $3000 ETH = 3000_000_000n)
+      const gasCostUsdt = (estimatedGasCost * this.config.gasToUsdtRate) / BigInt(1e18);
+
+      if (opportunity.estProfit <= gasCostUsdt) {
+        console.log(`[Executor] Trade unprofitable after gas: profit=${opportunity.estProfit}, gasCost=${gasCostUsdt}`);
+        return;
+      }
+    } catch (e) {
+      console.warn('[Executor] Gas estimation failed, proceeding anyway:', e);
+    }
+
     console.log(
       `[Executor] Executing arb: ${opportunity.protocolA} vs ${opportunity.protocolB}`,
     );

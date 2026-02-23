@@ -8,3 +8,15 @@ optimizer_runs = 200
 
 [rpc_endpoints]
 anvil = "http://127.0.0.1:8545"
+ethereum = "${ETH_RPC_URL}"
+polygon = "${POLYGON_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+base = "${BASE_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
+
+[etherscan]
+ethereum = { key = "${ETHERSCAN_API_KEY}" }
+polygon = { key = "${POLYGONSCAN_API_KEY}" }
+arbitrum = { key = "${ARBISCAN_API_KEY}" }
+base = { key = "${BASESCAN_API_KEY}" }
+sepolia = { key = "${ETHERSCAN_API_KEY}" }

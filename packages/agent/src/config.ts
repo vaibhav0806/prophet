@@ -35,6 +35,7 @@ export const config = {
   minSpreadBps: Number(process.env.MIN_SPREAD_BPS ?? "100"),
   maxPositionSize: BigInt(process.env.MAX_POSITION_SIZE ?? "500000000"),
   scanIntervalMs: Number(process.env.SCAN_INTERVAL_MS ?? "5000"),
+  gasToUsdtRate: BigInt(process.env.GAS_TO_USDT_RATE || "3000000000"), // default $3000 ETH in 6-dec USDT
   chainId: Number(process.env.CHAIN_ID || "31337"),
   port: Number(process.env.PORT ?? "3001"),
   apiKey: process.env.API_KEY ?? "",

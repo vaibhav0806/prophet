@@ -85,7 +85,7 @@ export interface OpenPositionParams {
 
 export class VaultClient {
   private walletClient: WalletClient;
-  private publicClient: PublicClient;
+  readonly publicClient: PublicClient;
   private vaultAddress: `0x${string}`;
 
   constructor(
@@ -163,8 +163,27 @@ export class VaultClient {
       throw new Error(`Transaction reverted: ${hash}`);
     }
     console.log(`[VaultClient] closePosition tx: ${receipt.transactionHash}`);
-    // Return payout — we'd need to parse logs, but for now return 0
-    return 0n;
+
+    const positionClosedAbi = [{
+      type: 'event' as const,
+      name: 'PositionClosed' as const,
+      inputs: [
+        { name: 'positionId' as const, type: 'uint256' as const, indexed: true as const },
+        { name: 'payout' as const, type: 'uint256' as const, indexed: false as const },
+      ],
+    }] as const;
+
+    const logs = parseEventLogs({
+      abi: positionClosedAbi,
+      logs: receipt.logs,
+      eventName: 'PositionClosed',
+    });
+
+    if (logs.length === 0) {
+      throw new Error('PositionClosed event not found in receipt');
+    }
+
+    return logs[0].args.payout;
   }
 
   async getPosition(positionId: number): Promise<Position> {
@@ -209,10 +228,13 @@ export class VaultClient {
 
   async getAllPositions(): Promise<Position[]> {
     const count = await this.getPositionCount();
-    const positions: Position[] = [];
-    for (let i = 0; i < count; i++) {
-      positions.push(await this.getPosition(i));
+    if (count === 0n) return [];
+
+    const promises = [];
+    for (let i = 0; i < Number(count); i++) {
+      promises.push(this.getPosition(i));
     }
-    return positions;
+
+    return Promise.all(promises);
   }
 }

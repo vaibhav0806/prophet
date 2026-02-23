@@ -171,14 +171,24 @@ function updateConfig(update: {
   scanIntervalMs?: number;
 }): void {
   if (update.minSpreadBps !== undefined) {
+    if (update.minSpreadBps < 1 || update.minSpreadBps > 10000) {
+      throw new Error('minSpreadBps must be between 1 and 10000');
+    }
     minSpreadBps = update.minSpreadBps;
     console.log(`[Agent] Updated minSpreadBps: ${minSpreadBps}`);
   }
   if (update.maxPositionSize !== undefined) {
-    maxPositionSize = BigInt(update.maxPositionSize);
+    const size = BigInt(update.maxPositionSize);
+    if (size <= 0n) {
+      throw new Error('maxPositionSize must be positive');
+    }
+    maxPositionSize = size;
     console.log(`[Agent] Updated maxPositionSize: ${maxPositionSize}`);
   }
   if (update.scanIntervalMs !== undefined) {
+    if (update.scanIntervalMs < 1000 || update.scanIntervalMs > 300000) {
+      throw new Error('scanIntervalMs must be between 1000 and 300000');
+    }
     scanIntervalMs = update.scanIntervalMs;
     console.log(`[Agent] Updated scanIntervalMs: ${scanIntervalMs}`);
   }
