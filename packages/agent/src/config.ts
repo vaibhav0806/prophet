@@ -39,6 +39,8 @@ export const config = {
   chainId: Number(process.env.CHAIN_ID || "31337"),
   port: Number(process.env.PORT ?? "3001"),
   apiKey: process.env.API_KEY ?? "",
+  polymarketAdapterAddress: (process.env.POLYMARKET_ADAPTER_ADDRESS || undefined) as `0x${string}` | undefined,
+  polymarketClobUrl: process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com",
 } as const;
 
 if (!config.apiKey) {
