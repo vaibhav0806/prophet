@@ -318,13 +318,13 @@ export class Executor {
 
     if (!resultA.success) {
       log.error("CLOB leg A failed, cancelling leg B", { error: resultA.error });
-      if (resultB.orderId) await clientB.cancelOrder(resultB.orderId);
+      if (resultB.orderId) await clientB.cancelOrder(resultB.orderId, legBParams.tokenId);
       return;
     }
 
     if (!resultB.success) {
       log.error("CLOB leg B failed, cancelling leg A", { error: resultB.error });
-      if (resultA.orderId) await clientA.cancelOrder(resultA.orderId);
+      if (resultA.orderId) await clientA.cancelOrder(resultA.orderId, legAParams.tokenId);
       return;
     }
 
@@ -447,8 +447,8 @@ export class Executor {
     if (!aFilled && !bFilled) {
       // Cancel both
       await Promise.all([
-        clientA.cancelOrder(position.legA.orderId),
-        clientB.cancelOrder(position.legB.orderId),
+        clientA.cancelOrder(position.legA.orderId, position.legA.tokenId),
+        clientB.cancelOrder(position.legB.orderId, position.legB.tokenId),
       ]);
       position.status = "EXPIRED";
       log.info("Timeout: cancelled both unfilled legs", { positionId: position.id });
@@ -456,7 +456,7 @@ export class Executor {
     }
 
     if (aFilled && !bFilled) {
-      await clientB.cancelOrder(position.legB.orderId);
+      await clientB.cancelOrder(position.legB.orderId, position.legB.tokenId);
       position.legA.filled = true;
       position.legA.filledSize = finalA.filledSize;
       position.status = "PARTIAL";
@@ -467,7 +467,7 @@ export class Executor {
     }
 
     if (bFilled && !aFilled) {
-      await clientA.cancelOrder(position.legA.orderId);
+      await clientA.cancelOrder(position.legA.orderId, position.legA.tokenId);
       position.legB.filled = true;
       position.legB.filledSize = finalB.filledSize;
       position.status = "PARTIAL";

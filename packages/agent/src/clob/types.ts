@@ -50,8 +50,8 @@ export interface ClobClient {
   /** Place a limit order on the CLOB */
   placeOrder(params: PlaceOrderParams): Promise<OrderResult>;
 
-  /** Cancel an order by ID */
-  cancelOrder(orderId: string): Promise<boolean>;
+  /** Cancel an order by ID (tokenId required for Probable) */
+  cancelOrder(orderId: string, tokenId?: string): Promise<boolean>;
 
   /** Get current open orders */
   getOpenOrders(): Promise<Array<{ orderId: string; tokenId: string; side: OrderSide; price: number; size: number }>>;
@@ -107,6 +107,7 @@ export const SIDE_SELL = 1;
 
 // SignatureType constants
 export const SIG_TYPE_EOA = 0;
+export const SIG_TYPE_POLY_PROXY = 1;
 
 // Zero address for taker (open order)
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;

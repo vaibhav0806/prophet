@@ -397,7 +397,7 @@ export class PredictClobClient implements ClobClient {
     return { success: true, orderId: data.orderId, status: data.status };
   }
 
-  async cancelOrder(orderId: string): Promise<boolean> {
+  async cancelOrder(orderId: string, _tokenId?: string): Promise<boolean> {
     try {
       const jwt = await this.ensureAuth();
 

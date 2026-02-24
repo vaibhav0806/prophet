@@ -1,3 +1,4 @@
+import { encodeFunctionData } from "viem"
 import type { PublicClient, WalletClient } from "viem"
 import type {
   ClobClient,
@@ -10,6 +11,15 @@ import type {
 import { buildOrder, signOrder, signClobAuth, serializeOrder, buildHmacSignature } from "./signing.js"
 import { log } from "../logger.js"
 import { withRetry } from "../retry.js"
+
+/** Probable Markets EIP-712 domain name (NOT "ClobExchange") */
+const PROBABLE_DOMAIN_NAME = "Probable CTF Exchange"
+
+/** Probable amount scaling: 1e18 (NOT Polymarket's 1e6) */
+const PROBABLE_SCALE = 1_000_000_000_000_000_000
+
+/** Probable minimum feeRateBps (1.75%) */
+const PROBABLE_MIN_FEE_RATE_BPS = 175
 
 /** Probable Markets CTF (ERC-1155 conditional tokens) */
 const PROBABLE_CTF_ADDRESS = "0x364d05055614B506e2b9A287E4ac34167204cA83" as `0x${string}`
@@ -62,6 +72,52 @@ const ERC20_APPROVE_ABI = [{
 /** BSC USDT */
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`
 
+/** Gnosis Safe v1.3.0 ABI fragments for execTransaction */
+const SAFE_NONCE_ABI = [{
+  type: "function" as const,
+  name: "nonce" as const,
+  inputs: [],
+  outputs: [{ name: "", type: "uint256" as const }],
+  stateMutability: "view" as const,
+}] as const
+
+const SAFE_EXEC_TX_ABI = [{
+  type: "function" as const,
+  name: "execTransaction" as const,
+  inputs: [
+    { name: "to", type: "address" as const },
+    { name: "value", type: "uint256" as const },
+    { name: "data", type: "bytes" as const },
+    { name: "operation", type: "uint8" as const },
+    { name: "safeTxGas", type: "uint256" as const },
+    { name: "baseGas", type: "uint256" as const },
+    { name: "gasPrice", type: "uint256" as const },
+    { name: "gasToken", type: "address" as const },
+    { name: "refundReceiver", type: "address" as const },
+    { name: "signatures", type: "bytes" as const },
+  ],
+  outputs: [{ name: "", type: "bool" as const }],
+  stateMutability: "payable" as const,
+}] as const
+
+/** EIP-712 SafeTx types for Gnosis Safe v1.3.0 */
+const SAFE_TX_EIP712_TYPES = {
+  SafeTx: [
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "data", type: "bytes" },
+    { name: "operation", type: "uint8" },
+    { name: "safeTxGas", type: "uint256" },
+    { name: "baseGas", type: "uint256" },
+    { name: "gasPrice", type: "uint256" },
+    { name: "gasToken", type: "address" },
+    { name: "refundReceiver", type: "address" },
+    { name: "nonce", type: "uint256" },
+  ],
+} as const
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as `0x${string}`
+
 export class ProbableClobClient implements ClobClient {
   readonly name = "Probable"
   readonly exchangeAddress: `0x${string}`
@@ -73,6 +129,7 @@ export class ProbableClobClient implements ClobClient {
   private expirationSec: number
   private dryRun: boolean
   private nonce: bigint
+  private proxyAddress: `0x${string}` | null
 
   private apiKey: string | null
   private apiSecret: string | null
@@ -85,6 +142,7 @@ export class ProbableClobClient implements ClobClient {
     chainId: number
     expirationSec?: number
     dryRun?: boolean
+    proxyAddress?: `0x${string}`
   }) {
     this.walletClient = params.walletClient
     this.apiBase = params.apiBase.replace(/\/+$/, "")
@@ -94,6 +152,7 @@ export class ProbableClobClient implements ClobClient {
     this.expirationSec = params.expirationSec ?? 300
     this.dryRun = params.dryRun ?? false
     this.nonce = 0n
+    this.proxyAddress = params.proxyAddress ?? null
     this.apiKey = null
     this.apiSecret = null
     this.apiPassphrase = null
@@ -201,16 +260,21 @@ export class ProbableClobClient implements ClobClient {
     const { tokenId, side, price, size } = params
 
     try {
+      const maker = this.proxyAddress ?? account.address
+      const feeRateBps = Math.max(this.feeRateBps, PROBABLE_MIN_FEE_RATE_BPS)
+
       const order = buildOrder({
-        maker: account.address,
+        maker,
         signer: account.address,
         tokenId,
         side,
         price,
         size,
-        feeRateBps: this.feeRateBps,
+        feeRateBps,
         expirationSec: this.expirationSec,
         nonce: this.nonce,
+        scale: PROBABLE_SCALE,
+        signatureType: this.proxyAddress ? 2 : 0,
       })
 
       const signed = await signOrder(
@@ -218,16 +282,32 @@ export class ProbableClobClient implements ClobClient {
         order,
         this.chainId,
         this.exchangeAddress,
+        PROBABLE_DOMAIN_NAME,
       )
 
       const serialized = serializeOrder(signed.order)
+      // Probable API requires exact key order for HMAC body verification.
+      // Outer: deferExec, order, owner, orderType
+      // Inner order: salt, maker, signer, taker, tokenId, makerAmount, takerAmount,
+      //   side, expiration, nonce, feeRateBps, signatureType, signature
       const body = {
+        deferExec: false,
         order: {
-          ...serialized,
-          salt: parseInt(String(serialized.salt), 10),
+          salt: serialized.salt,
+          maker: serialized.maker,
+          signer: serialized.signer,
+          taker: serialized.taker,
+          tokenId: serialized.tokenId,
+          makerAmount: serialized.makerAmount,
+          takerAmount: serialized.takerAmount,
+          side: serialized.side,
+          expiration: serialized.expiration,
+          nonce: serialized.nonce,
+          feeRateBps: serialized.feeRateBps,
+          signatureType: serialized.signatureType,
           signature: signed.signature,
         },
-        owner: account.address,
+        owner: maker,
         orderType: "GTC",
       }
 
@@ -267,17 +347,21 @@ export class ProbableClobClient implements ClobClient {
 
       if (!res.ok) {
         log.error("Probable placeOrder failed", { status: res.status, data })
-        return {
-          success: false,
-          error: typeof data.error === "string" ? data.error : `HTTP ${res.status}`,
-        }
+        const errObj = data.error as Record<string, unknown> | string | undefined
+        const errMsg = typeof errObj === "string"
+          ? errObj
+          : typeof errObj === "object" && errObj !== null
+            ? String(errObj.message ?? errObj.description ?? `HTTP ${res.status}`)
+            : `HTTP ${res.status}`
+        return { success: false, error: errMsg }
       }
 
       log.info("Probable order placed", { data })
 
+      const rawId = data.orderId ?? data.orderID ?? data.id
       return {
         success: true,
-        orderId: typeof data.orderID === "string" ? data.orderID : (data.orderId as string | undefined),
+        orderId: rawId != null ? String(rawId) : undefined,
         status: typeof data.status === "string" ? data.status : "SUBMITTED",
         transactionHash: typeof data.transactionsHashes === "string"
           ? data.transactionsHashes
@@ -289,19 +373,26 @@ export class ProbableClobClient implements ClobClient {
     }
   }
 
-  async cancelOrder(orderId: string): Promise<boolean> {
+  async cancelOrder(orderId: string, tokenId?: string): Promise<boolean> {
     if (this.dryRun) {
       log.info("DRY RUN: skipping cancel", { orderId })
       return true
     }
 
+    if (!tokenId) {
+      log.error("Probable cancelOrder requires tokenId", { orderId })
+      return false
+    }
+
     try {
+      // Probable: DELETE /order/{chainId}/{orderId}?tokenId={tokenId}
       const requestPath = `/public/api/v1/order/${this.chainId}/${orderId}`
-      const headers = this.getL2AuthHeaders("DELETE", requestPath)
+      const queryString = `?tokenId=${tokenId}`
+      const headers = this.getL2AuthHeaders("DELETE", requestPath + queryString)
 
       const res = await withRetry(
         () =>
-          fetch(`${this.apiBase}${requestPath}`, {
+          fetch(`${this.apiBase}${requestPath}${queryString}`, {
             method: "DELETE",
             headers: {
               "Content-Type": "application/json",
@@ -314,7 +405,7 @@ export class ProbableClobClient implements ClobClient {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as Record<string, unknown>
-        log.error("Probable cancelOrder failed", { status: res.status, data })
+        log.error("Probable cancelOrder failed", { status: res.status, orderId, data })
         return false
       }
 
@@ -426,31 +517,43 @@ export class ProbableClobClient implements ClobClient {
       return
     }
 
-    const owner = account.address
+    // When using a Safe proxy, approvals must come FROM the Safe (not the EOA)
+    const approvalOwner = this.proxyAddress ?? account.address
+    const useSafe = !!this.proxyAddress
 
     // Check ERC-1155 CTF approval
     const isApproved = await publicClient.readContract({
       address: PROBABLE_CTF_ADDRESS,
       abi: ERC1155_IS_APPROVED_ABI,
       functionName: "isApprovedForAll",
-      args: [owner, this.exchangeAddress],
+      args: [approvalOwner, this.exchangeAddress],
     })
 
     if (!isApproved) {
-      log.info("CTF ERC-1155 not approved — sending setApprovalForAll tx", {
-        ctf: PROBABLE_CTF_ADDRESS,
-        exchange: this.exchangeAddress,
-        owner,
-      })
-      const txHash = await this.walletClient.writeContract({
-        account,
-        chain: this.walletClient.chain,
-        address: PROBABLE_CTF_ADDRESS,
+      const callData = encodeFunctionData({
         abi: ERC1155_SET_APPROVAL_ABI,
         functionName: "setApprovalForAll",
         args: [this.exchangeAddress, true],
       })
-      log.info("CTF setApprovalForAll tx sent", { txHash })
+      log.info("CTF ERC-1155 not approved — sending setApprovalForAll", {
+        ctf: PROBABLE_CTF_ADDRESS,
+        exchange: this.exchangeAddress,
+        from: approvalOwner,
+        viaSafe: useSafe,
+      })
+      if (useSafe) {
+        await this.execSafeTransaction(publicClient, PROBABLE_CTF_ADDRESS, callData)
+      } else {
+        const txHash = await this.walletClient.writeContract({
+          account,
+          chain: this.walletClient.chain,
+          address: PROBABLE_CTF_ADDRESS,
+          abi: ERC1155_SET_APPROVAL_ABI,
+          functionName: "setApprovalForAll",
+          args: [this.exchangeAddress, true],
+        })
+        log.info("CTF setApprovalForAll tx sent", { txHash })
+      }
     }
 
     // Check USDT allowance
@@ -458,27 +561,122 @@ export class ProbableClobClient implements ClobClient {
       address: BSC_USDT,
       abi: ERC20_ALLOWANCE_ABI,
       functionName: "allowance",
-      args: [owner, this.exchangeAddress],
+      args: [approvalOwner, this.exchangeAddress],
     })
 
     if (allowance === 0n) {
-      log.info("USDT allowance is 0 — sending approve tx (max)", {
-        usdt: BSC_USDT,
-        exchange: this.exchangeAddress,
-        owner,
-      })
-      const txHash = await this.walletClient.writeContract({
-        account,
-        chain: this.walletClient.chain,
-        address: BSC_USDT,
+      const callData = encodeFunctionData({
         abi: ERC20_APPROVE_ABI,
         functionName: "approve",
         args: [this.exchangeAddress, 2n ** 256n - 1n],
       })
-      log.info("USDT approve tx sent", { txHash })
+      log.info("USDT allowance is 0 — sending approve (max)", {
+        usdt: BSC_USDT,
+        exchange: this.exchangeAddress,
+        from: approvalOwner,
+        viaSafe: useSafe,
+      })
+      if (useSafe) {
+        await this.execSafeTransaction(publicClient, BSC_USDT, callData)
+      } else {
+        const txHash = await this.walletClient.writeContract({
+          account,
+          chain: this.walletClient.chain,
+          address: BSC_USDT,
+          abi: ERC20_APPROVE_ABI,
+          functionName: "approve",
+          args: [this.exchangeAddress, 2n ** 256n - 1n],
+        })
+        log.info("USDT approve tx sent", { txHash })
+      }
     } else {
-      log.info("USDT allowance for Probable exchange", { allowance })
+      log.info("USDT allowance for Probable exchange", { allowance, from: approvalOwner })
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Safe transaction execution
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Execute a transaction through the Gnosis Safe proxy wallet.
+   * Signs a SafeTx EIP-712 message and calls execTransaction on the Safe.
+   * Only works for single-owner Safes (threshold=1).
+   */
+  private async execSafeTransaction(
+    publicClient: PublicClient,
+    to: `0x${string}`,
+    data: `0x${string}`,
+  ): Promise<`0x${string}`> {
+    const account = this.walletClient.account
+    if (!account) throw new Error("WalletClient has no account")
+    if (!this.proxyAddress) throw new Error("No proxy address set")
+
+    const safeAddress = this.proxyAddress
+
+    // Get current Safe nonce
+    const safeNonce = await publicClient.readContract({
+      address: safeAddress,
+      abi: SAFE_NONCE_ABI,
+      functionName: "nonce",
+    })
+
+    log.info("Signing Safe transaction", { safe: safeAddress, to, nonce: safeNonce })
+
+    // Sign SafeTx EIP-712 typed data (v=27/28, standard ECDSA path in Safe)
+    const signature = await this.walletClient.signTypedData({
+      account,
+      domain: {
+        chainId: this.chainId,
+        verifyingContract: safeAddress,
+      },
+      types: SAFE_TX_EIP712_TYPES,
+      primaryType: "SafeTx",
+      message: {
+        to,
+        value: 0n,
+        data,
+        operation: 0, // Call
+        safeTxGas: 0n,
+        baseGas: 0n,
+        gasPrice: 0n,
+        gasToken: ZERO_ADDR,
+        refundReceiver: ZERO_ADDR,
+        nonce: safeNonce,
+      },
+    })
+
+    // Execute through Safe
+    const txHash = await this.walletClient.writeContract({
+      account,
+      chain: this.walletClient.chain,
+      address: safeAddress,
+      abi: SAFE_EXEC_TX_ABI,
+      functionName: "execTransaction",
+      args: [
+        to,
+        0n,
+        data,
+        0, // Call
+        0n,
+        0n,
+        0n,
+        ZERO_ADDR,
+        ZERO_ADDR,
+        signature,
+      ],
+    })
+
+    log.info("Safe execTransaction sent, waiting for confirmation", { txHash, safe: safeAddress, to })
+
+    // Wait for confirmation so the Safe nonce increments before the next call
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+    if (receipt.status === "reverted") {
+      throw new Error(`Safe execTransaction reverted: ${txHash}`)
+    }
+
+    log.info("Safe execTransaction confirmed", { txHash, blockNumber: receipt.blockNumber })
+    return txHash
   }
 
   // ---------------------------------------------------------------------------

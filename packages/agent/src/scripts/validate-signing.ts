@@ -18,10 +18,11 @@ if (!PRIVATE_KEY || !RPC_URL) {
 
 const CHAIN_ID = Number(process.env.CHAIN_ID || "56");
 const PROBABLE_API_BASE = process.env.PROBABLE_API_BASE || "https://api.probable.markets";
-const PROBABLE_EXCHANGE_ADDRESS = (process.env.PROBABLE_EXCHANGE_ADDRESS || "0x616C31a93769e32781409518FA2A57f3857cDD24") as `0x${string}`;
+const PROBABLE_EXCHANGE_ADDRESS = (process.env.PROBABLE_EXCHANGE_ADDRESS || "0xf99f5367ce708c66f0860b77b4331301a5597c86") as `0x${string}`;
 const PREDICT_API_BASE = process.env.PREDICT_API_BASE || "https://api.predict.fun";
 const PREDICT_API_KEY = process.env.PREDICT_API_KEY || "";
 const PREDICT_EXCHANGE_ADDRESS = (process.env.PREDICT_EXCHANGE_ADDRESS || "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689") as `0x${string}`;
+const PROBABLE_PROXY_ADDRESS = process.env.PROBABLE_PROXY_ADDRESS as `0x${string}` | undefined;
 
 // Parse market maps for test token IDs
 function getFirstTokenId(envVar: string): string | null {
@@ -97,6 +98,7 @@ async function validateProbable(): Promise<void> {
   console.log(`Exchange: ${PROBABLE_EXCHANGE_ADDRESS}`);
   console.log(`Chain ID: ${CHAIN_ID}`);
   console.log(`Wallet:   ${account.address}`);
+  console.log(`Proxy:    ${PROBABLE_PROXY_ADDRESS ?? "none (EOA mode)"}`);
 
   const client = new ProbableClobClient({
     walletClient,
@@ -104,6 +106,7 @@ async function validateProbable(): Promise<void> {
     exchangeAddress: PROBABLE_EXCHANGE_ADDRESS,
     chainId: CHAIN_ID,
     dryRun: false,
+    proxyAddress: PROBABLE_PROXY_ADDRESS,
   });
 
   // Authenticate (derives L2 API key via EIP-712 signed request)
@@ -129,7 +132,7 @@ async function validateProbable(): Promise<void> {
 
   if (result.success && result.orderId && shouldCancel) {
     console.log(`\nCancelling order ${result.orderId}...`);
-    const cancelled = await client.cancelOrder(result.orderId);
+    const cancelled = await client.cancelOrder(result.orderId, tokenId);
     console.log(`Cancel result: ${cancelled ? "SUCCESS" : "FAILED"}`);
   }
 
@@ -194,7 +197,7 @@ async function validatePredict(): Promise<void> {
 
   if (result.success && result.orderId && shouldCancel) {
     console.log(`\nCancelling order ${result.orderId}...`);
-    const cancelled = await client.cancelOrder(result.orderId);
+    const cancelled = await client.cancelOrder(result.orderId, tokenId);
     console.log(`Cancel result: ${cancelled ? "SUCCESS" : "FAILED"}`);
   }
 

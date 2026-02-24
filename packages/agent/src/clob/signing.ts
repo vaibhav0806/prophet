@@ -32,6 +32,7 @@ export function buildOrder(params: {
   expirationSec: number;
   nonce: bigint;
   scale?: number; // amount scaling factor (default 1e6 for Polymarket/Probable, 1e18 for Predict)
+  signatureType?: number; // default SIG_TYPE_EOA (0), use SIG_TYPE_POLY_PROXY (1) for proxy wallets
 }): ClobOrder {
   const { maker, signer, tokenId, side, price, size, feeRateBps, expirationSec, nonce } = params;
 
@@ -55,7 +56,7 @@ export function buildOrder(params: {
     nonce,
     feeRateBps: BigInt(feeRateBps),
     side: isBuy ? SIDE_BUY : 1,
-    signatureType: SIG_TYPE_EOA,
+    signatureType: params.signatureType ?? SIG_TYPE_EOA,
   };
 }
 
