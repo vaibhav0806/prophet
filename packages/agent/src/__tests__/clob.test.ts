@@ -237,8 +237,8 @@ describe("serializeOrder", () => {
     expect(serialized.taker).toBe(ZERO_ADDRESS);
   });
 
-  it("preserves numeric side and signatureType", () => {
-    expect(serialized.side).toBe(SIDE_BUY);
+  it("serializes side as string and preserves signatureType", () => {
+    expect(serialized.side).toBe("BUY");
     expect(serialized.signatureType).toBe(SIG_TYPE_EOA);
   });
 

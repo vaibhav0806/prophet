@@ -52,9 +52,10 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **Multi-sig ownership** | Not started | Required for production |
 | **Proxy/upgradeable contracts** | Not started | Decision needed |
 | **CLOB client integration tests** | Not started | Need mocked fetch or testnet; unit tests pass but no HTTP-level tests for probable-client/predict-client |
-| **Mainnet signing validation** | Blocked | Script exists (`validate-signing.ts`), needs funded BSC wallet + real RPC URL |
-| **Probable `authenticate()` call** | Bug | Never called on startup in `index.ts` — first placeOrder will throw "L2 auth not initialized" |
-| **CLOB daily loss reads BNB not USDT** | Bug | `getBalance()` returns BNB balance, should read USDT ERC-20 balance for CLOB mode |
+| **Predict.fun signing validation** | Done | EIP-712 signing verified against live API — domain, exchange, scale, fees all correct |
+| **Probable signing validation** | Blocked | Requires proxy wallet (on-chain registration via probable.markets frontend) before orders accepted |
+| **Probable `authenticate()` call** | Fixed | Added to `index.ts` IIFE |
+| **CLOB daily loss reads BNB not USDT** | Fixed | Replaced with ERC-20 balanceOf |
 | **Nonce reset on restart** | Not started | Nonce starts at 0n on each restart, server may reject duplicate nonce |
 | **USDT balance pre-check** | Not started | No check that wallet has enough USDT before placing orders |
 | **Graceful shutdown** | Not started | No await for in-flight scans or state flush on SIGTERM |

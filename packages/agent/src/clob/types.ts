@@ -29,6 +29,7 @@ export interface PlaceOrderParams {
   side: OrderSide;
   price: number; // 0-1 (e.g. 0.068)
   size: number; // USDT amount (e.g. 100)
+  marketId?: string; // Predict.fun market ID — used to resolve per-market exchange address
 }
 
 export interface OrderResult {

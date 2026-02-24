@@ -1,4 +1,5 @@
 import type { PublicClient, WalletClient } from "viem";
+import { hashTypedData } from "viem";
 import type {
   ClobClient,
   PlaceOrderParams,
@@ -7,7 +8,8 @@ import type {
   OrderStatusResult,
   OrderStatus,
 } from "./types.js";
-import { buildOrder, signOrder, serializeOrder } from "./signing.js";
+import { ORDER_EIP712_TYPES } from "./types.js";
+import { buildOrder, signOrder } from "./signing.js";
 import { log } from "../logger.js";
 import { withRetry } from "../retry.js";
 
@@ -67,6 +69,20 @@ const ERC20_APPROVE_ABI = [
 const PREDICT_CTF_ADDRESS = "0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc" as `0x${string}`;
 const BSC_USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
+// Predict.fun EIP-712 domain name (different from Polymarket/Probable "ClobExchange")
+const PREDICT_DOMAIN_NAME = "predict.fun CTF Exchange";
+
+// Predict.fun uses 18-decimal scaling (not 6-decimal like Polymarket/Probable)
+const PREDICT_SCALE = 1_000_000_000_000_000_000; // 1e18
+
+// Predict.fun exchange contracts by market type (isNegRisk, isYieldBearing):
+const PREDICT_EXCHANGE_STANDARD = "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689" as `0x${string}`;
+const PREDICT_EXCHANGE_NEGRISK = "0x365fb81bd4A24D6303cd2F19c349dE6894D8d58A" as `0x${string}`;
+const PREDICT_EXCHANGE_YIELD = "0x6bEb5a40C032AFc305961162d8204CDA16DECFa5" as `0x${string}`;
+const PREDICT_EXCHANGE_YIELD_NEGRISK = "0x8A289d458f5a134bA40015085A8F50Ffb681B41d" as `0x${string}`;
+
+const MIN_FEE_RATE_BPS = 200;
+
 export class PredictClobClient implements ClobClient {
   readonly name = "Predict";
   readonly exchangeAddress: `0x${string}`;
@@ -80,6 +96,7 @@ export class PredictClobClient implements ClobClient {
   private dryRun: boolean;
   private nonce: bigint;
   private jwt: string | null;
+  private exchangeCache: Map<string, `0x${string}`>;
 
   constructor(params: {
     walletClient: WalletClient;
@@ -100,6 +117,7 @@ export class PredictClobClient implements ClobClient {
     this.dryRun = params.dryRun ?? false;
     this.nonce = 0n;
     this.jwt = null;
+    this.exchangeCache = new Map();
   }
 
   // ---------------------------------------------------------------------------
@@ -156,37 +174,48 @@ export class PredictClobClient implements ClobClient {
   }
 
   // ---------------------------------------------------------------------------
+  // Per-market exchange address resolution
+  // ---------------------------------------------------------------------------
+
+  async getExchangeForMarket(marketId: string): Promise<`0x${string}`> {
+    const cached = this.exchangeCache.get(marketId);
+    if (cached) return cached;
+
+    const res = await fetch(`${this.apiBase}/v1/markets/${marketId}`, {
+      headers: { "x-api-key": this.apiKey },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Predict GET /v1/markets/${marketId} failed (${res.status}): ${body}`);
+    }
+
+    const data = (await res.json()) as { isNegRisk?: boolean; isYieldBearing?: boolean };
+    const isNegRisk = data.isNegRisk ?? false;
+    const isYieldBearing = data.isYieldBearing ?? false;
+
+    let exchange: `0x${string}`;
+    if (isYieldBearing && isNegRisk) {
+      exchange = PREDICT_EXCHANGE_YIELD_NEGRISK;
+    } else if (isYieldBearing) {
+      exchange = PREDICT_EXCHANGE_YIELD;
+    } else if (isNegRisk) {
+      exchange = PREDICT_EXCHANGE_NEGRISK;
+    } else {
+      exchange = PREDICT_EXCHANGE_STANDARD;
+    }
+
+    log.info("Predict resolved exchange for market", { marketId, isNegRisk, isYieldBearing, exchange });
+    this.exchangeCache.set(marketId, exchange);
+    return exchange;
+  }
+
+  // ---------------------------------------------------------------------------
   // Nonce management
   // ---------------------------------------------------------------------------
 
   async fetchNonce(): Promise<bigint> {
-    const jwt = await this.ensureAuth();
-    const account = this.walletClient.account;
-    if (!account) throw new Error("WalletClient has no account");
-
-    const res = await fetch(
-      `${this.apiBase}/v1/orders/nonce?address=${account.address}`,
-      {
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          "x-api-key": this.apiKey,
-        },
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
-
-    if (res.status === 401) {
-      this.jwt = null;
-      return this.fetchNonce();
-    }
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Predict fetchNonce failed (${res.status}): ${body}`);
-    }
-
-    const data = (await res.json()) as { nonce: string | number };
-    this.nonce = BigInt(data.nonce);
-    log.info("Predict nonce fetched", { nonce: this.nonce });
+    log.info("Predict fetchNonce: using local nonce (no server endpoint)", { nonce: this.nonce });
     return this.nonce;
   }
 
@@ -201,6 +230,13 @@ export class PredictClobClient implements ClobClient {
     try {
       const jwt = await this.ensureAuth();
 
+      // Resolve the correct exchange contract for this market's flags
+      const exchange = params.marketId
+        ? await this.getExchangeForMarket(params.marketId)
+        : this.exchangeAddress;
+
+      const feeRateBps = Math.max(this.feeRateBps, MIN_FEE_RATE_BPS);
+
       const order = buildOrder({
         maker: account.address,
         signer: account.address,
@@ -208,24 +244,77 @@ export class PredictClobClient implements ClobClient {
         side: params.side,
         price: params.price,
         size: params.size,
-        feeRateBps: this.feeRateBps,
+        feeRateBps,
         expirationSec: this.expirationSec,
         nonce: this.nonce,
+        scale: PREDICT_SCALE,
       });
 
       const { signature } = await signOrder(
         this.walletClient,
         order,
         this.chainId,
-        this.exchangeAddress,
+        exchange,
+        PREDICT_DOMAIN_NAME,
       );
 
-      const serialized = serializeOrder(order);
+      // Compute the EIP-712 typed data hash (required by Predict.fun API)
+      const orderMessage = {
+        salt: order.salt,
+        maker: order.maker,
+        signer: order.signer,
+        taker: order.taker,
+        tokenId: order.tokenId,
+        makerAmount: order.makerAmount,
+        takerAmount: order.takerAmount,
+        expiration: order.expiration,
+        nonce: order.nonce,
+        feeRateBps: order.feeRateBps,
+        side: order.side,
+        signatureType: order.signatureType,
+      };
 
+      const hash = hashTypedData({
+        domain: {
+          name: PREDICT_DOMAIN_NAME,
+          version: "1",
+          chainId: this.chainId,
+          verifyingContract: exchange,
+        },
+        types: ORDER_EIP712_TYPES,
+        primaryType: "Order",
+        message: orderMessage,
+      });
+
+      // Predict.fun expects price as wei string (18 decimals)
+      // e.g. price 0.50 → "500000000000000000"
+      const pricePerShare = BigInt(Math.floor(params.price * 1e18)).toString();
+
+      // Build the Predict.fun order payload:
+      // - side is numeric (0 = BUY, 1 = SELL), not string
+      // - signature and hash go inside the order object
+      // - wrapped in { data: { order, pricePerShare, strategy } }
       const payload = {
-        order: serialized,
-        signature,
-        owner: account.address,
+        data: {
+          order: {
+            salt: order.salt.toString(),
+            maker: order.maker,
+            signer: order.signer,
+            taker: order.taker,
+            tokenId: order.tokenId.toString(),
+            makerAmount: order.makerAmount.toString(),
+            takerAmount: order.takerAmount.toString(),
+            expiration: order.expiration.toString(),
+            nonce: order.nonce.toString(),
+            feeRateBps: order.feeRateBps.toString(),
+            side: order.side, // numeric: 0 (BUY) or 1 (SELL)
+            signatureType: order.signatureType,
+            signature,
+            hash,
+          },
+          pricePerShare,
+          strategy: "LIMIT",
+        },
       };
 
       if (this.dryRun) {
@@ -243,9 +332,6 @@ export class PredictClobClient implements ClobClient {
         () => this.postOrder(jwt, payload),
         { retries: 2, label: "Predict placeOrder" },
       );
-
-      // Increment nonce after successful submission
-      this.nonce += 1n;
 
       log.info("Predict order placed", {
         orderId: res.orderId,
@@ -265,8 +351,10 @@ export class PredictClobClient implements ClobClient {
 
   private async postOrder(
     jwt: string,
-    payload: { order: Record<string, string | number>; signature: `0x${string}`; owner: string },
+    payload: Record<string, unknown>,
   ): Promise<OrderResult> {
+    const bodyStr = JSON.stringify(payload);
+
     const res = await fetch(`${this.apiBase}/v1/orders`, {
       method: "POST",
       headers: {
@@ -274,7 +362,7 @@ export class PredictClobClient implements ClobClient {
         Authorization: `Bearer ${jwt}`,
         "x-api-key": this.apiKey,
       },
-      body: JSON.stringify(payload),
+      body: bodyStr,
       signal: AbortSignal.timeout(10_000),
     });
 
@@ -289,7 +377,7 @@ export class PredictClobClient implements ClobClient {
           Authorization: `Bearer ${newJwt}`,
           "x-api-key": this.apiKey,
         },
-        body: JSON.stringify(payload),
+        body: bodyStr,
         signal: AbortSignal.timeout(10_000),
       });
       if (!retry.ok) {

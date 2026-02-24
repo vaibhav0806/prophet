@@ -222,10 +222,13 @@ export class ProbableClobClient implements ClobClient {
 
       const serialized = serializeOrder(signed.order)
       const body = {
-        order: serialized,
-        signature: signed.signature,
-        orderType: "GTC",
+        order: {
+          ...serialized,
+          salt: parseInt(String(serialized.salt), 10),
+          signature: signed.signature,
+        },
         owner: account.address,
+        orderType: "GTC",
       }
 
       log.info("Probable order built", {
@@ -239,7 +242,6 @@ export class ProbableClobClient implements ClobClient {
 
       if (this.dryRun) {
         log.info("DRY RUN: skipping POST", { body })
-        this.nonce++
         return { success: true, orderId: "dry-run", status: "DRY_RUN" }
       }
 
@@ -271,7 +273,6 @@ export class ProbableClobClient implements ClobClient {
         }
       }
 
-      this.nonce++
       log.info("Probable order placed", { data })
 
       return {

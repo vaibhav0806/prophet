@@ -31,13 +31,15 @@ export function buildOrder(params: {
   feeRateBps: number;
   expirationSec: number;
   nonce: bigint;
+  scale?: number; // amount scaling factor (default 1e6 for Polymarket/Probable, 1e18 for Predict)
 }): ClobOrder {
   const { maker, signer, tokenId, side, price, size, feeRateBps, expirationSec, nonce } = params;
 
-  // CTF CLOB uses 1e6 scaling for amounts
-  const SCALE = 1_000_000;
-  const sizeRaw = BigInt(Math.floor(size * SCALE));
-  const sharesRaw = BigInt(Math.floor((size / price) * SCALE));
+  // CTF CLOB amount scaling: 1e6 for Polymarket/Probable, 1e18 for Predict.fun
+  // Use BigInt arithmetic to avoid floating-point overflow with large scales (e.g. 1e18)
+  const scaleBig = BigInt(params.scale ?? 1_000_000);
+  const sizeRaw = BigInt(Math.floor(size * 1e6)) * scaleBig / 1_000_000n;
+  const sharesRaw = BigInt(Math.floor((size / price) * 1e6)) * scaleBig / 1_000_000n;
 
   const isBuy = side === "BUY";
 
@@ -65,6 +67,7 @@ export async function signOrder(
   order: ClobOrder,
   chainId: number,
   exchangeAddress: `0x${string}`,
+  domainName?: string,
 ): Promise<SignedClobOrder> {
   const account = walletClient.account;
   if (!account) throw new Error("WalletClient has no account");
@@ -72,7 +75,8 @@ export async function signOrder(
   const signature = await walletClient.signTypedData({
     account,
     domain: {
-      ...ORDER_EIP712_DOMAIN,
+      name: domainName ?? ORDER_EIP712_DOMAIN.name,
+      version: ORDER_EIP712_DOMAIN.version,
       chainId,
       verifyingContract: exchangeAddress,
     },
@@ -182,7 +186,7 @@ export function serializeOrder(order: ClobOrder): Record<string, string | number
     expiration: order.expiration.toString(),
     nonce: order.nonce.toString(),
     feeRateBps: order.feeRateBps.toString(),
-    side: order.side,
+    side: order.side === SIDE_BUY ? "BUY" : "SELL",
     signatureType: order.signatureType,
   };
 }
