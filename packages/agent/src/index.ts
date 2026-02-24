@@ -326,6 +326,17 @@ function collectClobNonces(): Record<string, string> | undefined {
 }
 
 // --- Scan loop ---
+const SCAN_TIMEOUT_MS = 120_000; // 2 minutes
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
 let scanning = false;
 
 async function scan(): Promise<void> {
@@ -338,6 +349,7 @@ async function scan(): Promise<void> {
     if (clobInitPromise) await clobInitPromise;
 
     try {
+      await withTimeout((async () => {
       log.info("Scanning for opportunities");
 
       // Fetch quotes from all providers
@@ -400,11 +412,14 @@ async function scan(): Promise<void> {
           });
           // BSC USDT is 18 decimals, dailyLossLimit is 6 decimals
           balanceForLossCheck = usdtBalance / BigInt(1e12);
-        } catch { /* balance check may fail */ }
+        } catch (err) {
+          log.error("CLOB balance check failed — skipping execution this scan", { error: String(err) });
+          balanceForLossCheck = -1n; // sentinel: will fail loss check
+        }
       } else if (vaultClient) {
         try { balanceForLossCheck = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
       }
-      const withinLossLimit = checkDailyLoss(balanceForLossCheck);
+      const withinLossLimit = balanceForLossCheck >= 0n && checkDailyLoss(balanceForLossCheck);
       if (!withinLossLimit) {
         log.warn("Daily loss limit reached, skipping execution", {
           startBalance: dailyStartBalance?.toString(),
@@ -449,6 +464,8 @@ async function scan(): Promise<void> {
           if (result && config.executionMode === "clob") {
             clobPositions.push(result);
           }
+          // Persist immediately after trade to prevent nonce desync on crash
+          saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
         } catch {
           // Already logged in executor
         }
@@ -547,6 +564,7 @@ async function scan(): Promise<void> {
 
       // Persist state after successful scan
       saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
+    })(), SCAN_TIMEOUT_MS, "scan");
     } catch (err) {
       log.error("Scan error", { error: String(err) });
     }
@@ -667,6 +685,13 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info("Shutting down gracefully...");
+
+  // Force exit after 30s if graceful shutdown hangs
+  const forceExitTimer = setTimeout(() => {
+    log.error("Graceful shutdown timed out after 30s — forcing exit");
+    process.exit(1);
+  }, 30_000);
+  forceExitTimer.unref(); // Don't keep process alive just for this timer
 
   running = false;
   if (scanTimer) clearTimeout(scanTimer);

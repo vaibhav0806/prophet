@@ -69,11 +69,17 @@ export class PredictProvider extends MarketProvider {
       try {
         const book = await this.fetchOrderBook(mapping.predictMarketId);
 
-        // Predict returns asks/bids as [price, quantity] tuples
-        // asks = people selling YES, bids = people buying YES
-        // YES price = best ask price, NO price = 1 - best bid price
-        const yesAsk = book.asks.length > 0 ? book.asks[0] : null;
-        const noBid = book.bids.length > 0 ? book.bids[0] : null;
+        // PRICING NOTE: Predict uses a single-market orderbook where asks = YES sellers,
+        // bids = YES buyers. YES price = best ask, NO price = 1 - best bid (complement).
+        // This differs from Probable which fetches separate YES/NO orderbooks and uses
+        // ask-only pricing for both. The complement approach can create phantom spreads
+        // if the YES bid-ask spread is wide. Consider fetching NO-specific orderbook if available.
+
+        // Sort asks ascending (lowest first), bids descending (highest first)
+        const sortedAsks = [...book.asks].sort((a, b) => a[0] - b[0]);
+        const sortedBids = [...book.bids].sort((a, b) => b[0] - a[0]);
+        const yesAsk = sortedAsks.length > 0 ? sortedAsks[0] : null;
+        const noBid = sortedBids.length > 0 ? sortedBids[0] : null;
 
         const yesPrice = yesAsk ? decimalToBigInt(String(yesAsk[0]), 18) : 0n;
         // NO price is complement: if best bid for YES is 0.60, NO costs 0.40
@@ -111,7 +117,8 @@ export class PredictProvider extends MarketProvider {
           noPrice,
           yesLiquidity: yesLiq,
           noLiquidity: noLiq,
-          feeBps: 200,
+          feeBps: 200, // Predict minimum fee rate; TODO: fetch per-market feeRateBps from API
+          quotedAt: Date.now(),
         });
       } catch (err) {
         log.warn("Failed to fetch Predict quote", {

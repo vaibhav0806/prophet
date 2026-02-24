@@ -87,6 +87,7 @@ export class OpinionProvider extends MarketProvider {
           yesLiquidity: yesLiq,
           noLiquidity: noLiq,
           feeBps: 200,
+          quotedAt: Date.now(),
         });
       } catch (err) {
         log.warn("Failed to fetch Opinion quote", { marketId, error: String(err) });

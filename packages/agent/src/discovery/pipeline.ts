@@ -245,22 +245,38 @@ async function fetchProbableMarkets(
         outcomes.some((o) => o.toLowerCase() === "no");
       if (!hasYesNo) continue;
 
-      // Parse clobTokenIds for YES/NO token IDs
-      let tokenIds: string[];
-      try {
-        tokenIds = JSON.parse(market.clobTokenIds);
-      } catch {
-        continue;
+      // Determine YES/NO token IDs — prefer explicit tokens array over positional clobTokenIds
+      let yesTokenId: string | undefined;
+      let noTokenId: string | undefined;
+
+      if (Array.isArray(market.tokens) && market.tokens.length >= 2) {
+        const yesToken = market.tokens.find((t) => t.outcome.toLowerCase() === "yes");
+        const noToken = market.tokens.find((t) => t.outcome.toLowerCase() === "no");
+        if (yesToken && noToken) {
+          yesTokenId = yesToken.token_id;
+          noTokenId = noToken.token_id;
+        }
       }
-      if (tokenIds.length !== 2) continue;
 
-      // token_id order matches outcomes order; find YES and NO
-      const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
-      const noIdx = outcomes.findIndex((o) => o.toLowerCase() === "no");
-      if (yesIdx === -1 || noIdx === -1) continue;
+      // Fallback to clobTokenIds + outcomes parallel arrays
+      if (!yesTokenId || !noTokenId) {
+        let tokenIds: string[];
+        try {
+          tokenIds = JSON.parse(market.clobTokenIds);
+        } catch {
+          continue;
+        }
+        if (tokenIds.length !== 2) continue;
 
-      const yesTokenId = tokenIds[yesIdx];
-      const noTokenId = tokenIds[noIdx];
+        const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
+        const noIdx = outcomes.findIndex((o) => o.toLowerCase() === "no");
+        if (yesIdx === -1 || noIdx === -1) continue;
+
+        yesTokenId = tokenIds[yesIdx];
+        noTokenId = tokenIds[noIdx];
+      }
+
+      if (!yesTokenId || !noTokenId) continue;
 
       // conditionId: prefer explicit field, fall back to market id
       const conditionId = market.conditionId || market.id;

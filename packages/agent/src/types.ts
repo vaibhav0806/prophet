@@ -6,6 +6,7 @@ export interface MarketQuote {
   yesLiquidity: bigint;
   noLiquidity: bigint;
   feeBps: number; // protocol fee in basis points (e.g. 200 for Predict.fun)
+  quotedAt: number; // Date.now() when quote was fetched
   eventDescription?: string;
   expiresAt?: number;
   category?: string;

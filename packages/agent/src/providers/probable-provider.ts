@@ -115,7 +115,8 @@ export class ProbableProvider extends MarketProvider {
           noPrice,
           yesLiquidity: yesLiq,
           noLiquidity: noLiq,
-          feeBps: 0,
+          feeBps: 175, // Probable minimum fee rate (1.75%)
+          quotedAt: Date.now(),
         });
       } catch (err) {
         log.warn("Failed to fetch Probable quote", { marketId, error: String(err) });

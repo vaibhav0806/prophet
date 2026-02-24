@@ -308,7 +308,7 @@ export class ProbableClobClient implements ClobClient {
           signature: signed.signature,
         },
         owner: maker,
-        orderType: "GTC",
+        orderType: "FOK",
       }
 
       log.info("Probable order built", {
@@ -553,7 +553,13 @@ export class ProbableClobClient implements ClobClient {
           functionName: "setApprovalForAll",
           args: [this.exchangeAddress, true],
         })
-        log.info("CTF setApprovalForAll tx sent", { txHash })
+        log.info("CTF setApprovalForAll tx sent, waiting for confirmation", { txHash })
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+        if (receipt.status === "reverted") {
+          log.error("CTF setApprovalForAll reverted", { txHash })
+        } else {
+          log.info("CTF setApprovalForAll confirmed", { txHash, blockNumber: receipt.blockNumber })
+        }
       }
     }
 
@@ -588,7 +594,13 @@ export class ProbableClobClient implements ClobClient {
           functionName: "approve",
           args: [this.exchangeAddress, 2n ** 256n - 1n],
         })
-        log.info("USDT approve tx sent", { txHash })
+        log.info("USDT approve tx sent, waiting for confirmation", { txHash })
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+        if (receipt.status === "reverted") {
+          log.error("USDT approve reverted", { txHash })
+        } else {
+          log.info("USDT approve confirmed", { txHash, blockNumber: receipt.blockNumber })
+        }
       }
     } else {
       log.info("USDT allowance for Probable exchange", { allowance, from: approvalOwner })

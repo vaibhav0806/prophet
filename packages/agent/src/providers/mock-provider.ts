@@ -71,6 +71,7 @@ export class MockProvider extends MarketProvider {
           yesLiquidity: result.yesLiquidity,
           noLiquidity: result.noLiquidity,
           feeBps: 0,
+          quotedAt: Date.now(),
         });
       } catch (err) {
         log.error("Failed to fetch quote", {

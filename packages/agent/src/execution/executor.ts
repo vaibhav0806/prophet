@@ -71,6 +71,9 @@ const CTF_ADDRESSES: Record<string, `0x${string}`> = {
   predict: "0x22DA1810B194ca018378464a58f6Ac2B10C9d244",
 };
 
+const UNWIND_POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const UNWIND_POLL_INTERVAL_MS = 10_000; // 10 seconds
+
 interface ClobClients {
   probable?: ClobClient;
   predict?: ClobClient;
@@ -559,44 +562,55 @@ export class Executor {
 
   private async attemptUnwind(client: ClobClient, leg: ClobLeg): Promise<void> {
     const size = leg.filledSize > 0 ? leg.filledSize : leg.size;
-    const price = Math.round(leg.price * 0.95 * 100) / 100; // 5% discount, round to 2 decimals
+    const price = Math.round(leg.price * 0.95 * 100) / 100; // 5% discount
 
     log.info("Attempting to unwind filled leg", {
-      platform: leg.platform,
-      tokenId: leg.tokenId,
-      side: "SELL",
-      price,
-      size,
+      platform: leg.platform, tokenId: leg.tokenId, side: "SELL", price, size,
     });
 
     try {
       const result = await client.placeOrder({
-        tokenId: leg.tokenId,
-        side: "SELL",
-        price,
-        size,
+        tokenId: leg.tokenId, side: "SELL", price, size,
       });
 
-      if (result.success) {
-        log.info("Unwind order placed", {
-          orderId: result.orderId,
-          platform: leg.platform,
-          tokenId: leg.tokenId,
-          price,
-          size,
-        });
-      } else {
-        log.warn("Unwind order rejected", {
-          platform: leg.platform,
-          tokenId: leg.tokenId,
-          error: result.error,
-        });
+      if (!result.success || !result.orderId) {
+        log.error("Unwind order rejected", { platform: leg.platform, error: result.error });
+        return;
       }
+
+      log.info("Unwind order placed, monitoring for fill", { orderId: result.orderId });
+
+      // Poll for unwind order fill
+      const deadline = Date.now() + UNWIND_POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, UNWIND_POLL_INTERVAL_MS));
+        try {
+          const status = await client.getOrderStatus(result.orderId);
+          if (status.status === "FILLED") {
+            log.info("Unwind order filled — auto-unpausing executor", {
+              orderId: result.orderId, platform: leg.platform, filledSize: status.filledSize,
+            });
+            this.paused = false;
+            return;
+          }
+          if (status.status === "CANCELLED" || status.status === "EXPIRED") {
+            log.error("Unwind order cancelled/expired — executor remains paused", {
+              orderId: result.orderId, status: status.status,
+            });
+            return;
+          }
+        } catch (pollErr) {
+          log.warn("Unwind poll error, will retry", { error: String(pollErr) });
+        }
+      }
+
+      // Timeout
+      log.error("Unwind order timed out — executor remains paused, manual intervention required", {
+        orderId: result.orderId, platform: leg.platform, timeoutMs: UNWIND_POLL_TIMEOUT_MS,
+      });
     } catch (err) {
-      log.warn("Unwind failed", {
-        platform: leg.platform,
-        tokenId: leg.tokenId,
-        error: String(err),
+      log.error("Unwind failed — executor remains paused", {
+        platform: leg.platform, tokenId: leg.tokenId, error: String(err),
       });
     }
   }

@@ -19,6 +19,7 @@ function quote(
     yesLiquidity: ONE,
     noLiquidity: ONE,
     feeBps,
+    quotedAt: Date.now(),
   };
 }
 
@@ -91,11 +92,11 @@ describe("detectArbitrage", () => {
 
     const quotes: MarketQuote[] = [
       // Market 1: small spread (yes_A + no_B = 0.95)
-      { marketId, protocol: "A", yesPrice: (ONE * 50n) / 100n, noPrice: (ONE * 50n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0 },
-      { marketId, protocol: "B", yesPrice: (ONE * 60n) / 100n, noPrice: (ONE * 45n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0 },
+      { marketId, protocol: "A", yesPrice: (ONE * 50n) / 100n, noPrice: (ONE * 50n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0, quotedAt: Date.now() },
+      { marketId, protocol: "B", yesPrice: (ONE * 60n) / 100n, noPrice: (ONE * 45n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0, quotedAt: Date.now() },
       // Market 2: bigger spread (yes_A + no_B = 0.70)
-      { marketId: marketId2, protocol: "A", yesPrice: (ONE * 40n) / 100n, noPrice: (ONE * 60n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0 },
-      { marketId: marketId2, protocol: "B", yesPrice: (ONE * 60n) / 100n, noPrice: (ONE * 30n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0 },
+      { marketId: marketId2, protocol: "A", yesPrice: (ONE * 40n) / 100n, noPrice: (ONE * 60n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0, quotedAt: Date.now() },
+      { marketId: marketId2, protocol: "B", yesPrice: (ONE * 60n) / 100n, noPrice: (ONE * 30n) / 100n, yesLiquidity: ONE, noLiquidity: ONE, feeBps: 0, quotedAt: Date.now() },
     ];
 
     const result = detectArbitrage(quotes);

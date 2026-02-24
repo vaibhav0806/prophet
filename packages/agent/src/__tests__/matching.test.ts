@@ -52,6 +52,7 @@ function makeQuote(overrides: Partial<MarketQuote> & { protocol: string }): Mark
     yesLiquidity: ONE,
     noLiquidity: ONE,
     feeBps: 0,
+    quotedAt: Date.now(),
     ...overrides,
   };
 }

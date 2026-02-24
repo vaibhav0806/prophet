@@ -351,7 +351,7 @@ export class PredictClobClient implements ClobClient {
             hash,
           },
           pricePerShare,
-          strategy: "LIMIT",
+          strategy: "IOC",
         },
       };
 
@@ -486,7 +486,7 @@ export class PredictClobClient implements ClobClient {
     }
   }
 
-  async getOpenOrders(): Promise<
+  async getOpenOrders(retried = false): Promise<
     Array<{ orderId: string; tokenId: string; side: OrderSide; price: number; size: number }>
   > {
     try {
@@ -506,8 +506,13 @@ export class PredictClobClient implements ClobClient {
       );
 
       if (res.status === 401) {
+        if (retried) {
+          log.error("Predict getOpenOrders failed after re-auth retry", { status: res.status });
+          return [];
+        }
         this.jwt = null;
-        return this.getOpenOrders();
+        await this.ensureAuth();
+        return this.getOpenOrders(true);
       }
 
       if (!res.ok) {
@@ -536,7 +541,7 @@ export class PredictClobClient implements ClobClient {
     }
   }
 
-  async getOrderStatus(orderId: string): Promise<OrderStatusResult> {
+  async getOrderStatus(orderId: string, retried = false): Promise<OrderStatusResult> {
     try {
       const jwt = await this.ensureAuth();
 
@@ -549,8 +554,13 @@ export class PredictClobClient implements ClobClient {
       });
 
       if (res.status === 401) {
+        if (retried) {
+          log.warn("Predict getOrderStatus failed after re-auth retry", { orderId, status: res.status });
+          return { orderId, status: "UNKNOWN", filledSize: 0, remainingSize: 0 };
+        }
         this.jwt = null;
-        return this.getOrderStatus(orderId);
+        await this.ensureAuth();
+        return this.getOrderStatus(orderId, true);
       }
 
       if (!res.ok) {
@@ -624,7 +634,13 @@ export class PredictClobClient implements ClobClient {
             args: [this.exchangeAddress, true],
             chain: this.walletClient.chain,
           });
-          log.info("Predict CTF setApprovalForAll tx sent", { txHash });
+          log.info("Predict CTF setApprovalForAll tx sent, waiting for confirmation", { txHash });
+          const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+          if (receipt.status === "reverted") {
+            log.error("Predict CTF setApprovalForAll reverted", { txHash });
+          } else {
+            log.info("Predict CTF setApprovalForAll confirmed", { txHash, blockNumber: receipt.blockNumber });
+          }
         } catch (txErr) {
           log.error("Failed to send CTF setApprovalForAll tx", { error: String(txErr) });
         }
@@ -658,7 +674,13 @@ export class PredictClobClient implements ClobClient {
             args: [this.exchangeAddress, 2n ** 256n - 1n],
             chain: this.walletClient.chain,
           });
-          log.info("Predict USDT approve tx sent", { txHash });
+          log.info("Predict USDT approve tx sent, waiting for confirmation", { txHash });
+          const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+          if (receipt.status === "reverted") {
+            log.error("Predict USDT approve reverted", { txHash });
+          } else {
+            log.info("Predict USDT approve confirmed", { txHash, blockNumber: receipt.blockNumber });
+          }
         } catch (txErr) {
           log.error("Failed to send USDT approve tx", { error: String(txErr) });
         }
