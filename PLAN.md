@@ -57,9 +57,14 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Opi
 | **Probable `authenticate()` call** | Fixed | Added to `index.ts` IIFE |
 | **CLOB daily loss reads BNB not USDT** | Fixed | Replaced with ERC-20 balanceOf |
 | **Safe proxy wallet flow** | Done | `execSafeTransaction()` — EIP-712 SafeTx signing, CTF + USDT approvals via Safe, receipt-based nonce management |
-| **Nonce reset on restart** | Not started | Nonce starts at 0n on each restart, server may reject duplicate nonce |
-| **USDT balance pre-check** | Not started | No check that wallet has enough USDT before placing orders |
-| **Graceful shutdown** | Not started | No await for in-flight scans or state flush on SIGTERM |
+| **Nonce persistence + auto-increment** | Done | Nonces persisted to state file, restored on restart, incremented after every successful order — `3fea99a`, `94b5de4` |
+| **USDT balance pre-check** | Done | EOA USDT balance checked before CLOB order placement — `3444ba4` |
+| **Graceful shutdown** | Done | SIGTERM/SIGINT cancels open orders, flushes state, exits cleanly — `3fea99a` |
+| **Partial fill unwind** | Done | Auto-sells filled leg at 5% discount on PARTIAL detection, best-effort — `94b5de4` |
+| **API key masking** | Done | Sensitive keys masked in logs (first 8 chars only) — `94b5de4` |
+| **Float precision** | Done | Two-step BigInt scaling avoids IEEE 754 loss at 1e18 — `3fea99a` |
+| **JWT mutex** | Done | Promise-based mutex on Predict.fun auth, 30s expiry buffer — `3fea99a` |
+| **Dedup map cleanup** | Done | Stale entries cleaned every scan cycle — `94b5de4` |
 
 ### Test Results
 
@@ -154,14 +159,16 @@ All original P0 issues from the initial audit have been fixed:
 
 | # | Area | Issue | Status | Commit |
 |---|------|-------|--------|--------|
-| 1 | Agent | **Partial fill — no remediation** | Fixed | `3fea99a` — Executor auto-pauses on PARTIAL, `isPaused()`/`unpause()` for operator control |
-| 2 | Agent | **Nonce reset on restart** | Fixed | `3fea99a` — Nonces persisted to state file via `getNonce()`/`setNonce()`, restored on startup |
+| 1 | Agent | **Partial fill — no remediation** | Fixed | `3fea99a` + `94b5de4` — Auto-pauses on PARTIAL, auto-sells filled leg at 5% discount to recover capital |
+| 2 | Agent | **Nonce reset on restart** | Fixed | `3fea99a` + `94b5de4` — Nonces persisted, restored on startup, auto-incremented after every successful order |
 | 3 | Agent | **No USDT balance pre-check** | Fixed | `3444ba4` — EOA USDT balance checked before placing CLOB orders |
 | 4 | Agent | **Graceful shutdown missing** | Fixed | `3fea99a` — SIGTERM/SIGINT handler cancels open orders, flushes state, exits cleanly |
 | 5 | Agent | **Float precision in order amounts** | Fixed | `3fea99a` — Two-step scaling (float*1e8 then BigInt/100_000_000n) avoids IEEE 754 loss |
 | 6 | Agent | **JWT expiry race (Predict.fun)** | Fixed | `3fea99a` — Promise-based mutex on `ensureAuth()`, JWT expiry tracking with 30s buffer |
-| 7 | Contracts | **`setCircuitBreakers` has no timelock** | Not started | Add timelock or require multi-sig for circuit breaker changes |
-| 8 | Infra | **npm audit vulnerabilities** | Not started | Run `npm audit fix`, upgrade vulnerable deps |
+| 7 | Agent | **API key logged in plaintext** | Fixed | `94b5de4` — Masked to first 8 chars in log output |
+| 8 | Agent | **Dedup map memory leak** | Fixed | `94b5de4` — Stale entries cleaned every scan cycle |
+| 9 | Contracts | **`setCircuitBreakers` has no timelock** | Not started | Add timelock or require multi-sig for circuit breaker changes |
+| 10 | Infra | **npm audit vulnerabilities** | Not started | Run `npm audit fix`, upgrade vulnerable deps |
 
 #### Tier 3 — Medium Priority (fix before production scale)
 
