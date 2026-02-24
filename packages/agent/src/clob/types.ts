@@ -60,7 +60,7 @@ export interface ClobClient {
   getOrderStatus(orderId: string): Promise<OrderStatusResult>;
 
   /** Ensure ERC-1155 + USDT approvals for the exchange */
-  ensureApprovals(publicClient: PublicClient): Promise<void>;
+  ensureApprovals(publicClient: PublicClient, fundingThreshold?: bigint): Promise<void>;
 }
 
 // EIP-712 domain for CTF Exchange orders

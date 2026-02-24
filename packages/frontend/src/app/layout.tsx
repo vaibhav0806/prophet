@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Providers } from "./providers";
-import { Sidebar } from "@/components/sidebar";
 import "./globals.css";
+import { Providers } from "./providers";
+import { Sidebar } from "../components/sidebar";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
   variable: "--font-geist-sans",
   weight: "100 900",
 });
+
 const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
   variable: "--font-geist-mono",
@@ -16,8 +17,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Prophit",
-  description: "BNB Chain arbitrage agent for prediction markets",
+  title: "Prophit \u2014 Prediction Market Arbitrage",
+  description: "Automated prediction market arbitrage trading platform",
 };
 
 export default function RootLayout({
@@ -34,9 +35,7 @@ export default function RootLayout({
           <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 min-w-0 overflow-auto">
-              <div className="max-w-7xl mx-auto p-6 lg:p-8">
-                {children}
-              </div>
+              {children}
             </main>
           </div>
         </Providers>

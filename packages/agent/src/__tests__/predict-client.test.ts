@@ -194,7 +194,7 @@ describe("PredictClobClient", () => {
   // -------------------------------------------------------------------------
 
   describe("placeOrder", () => {
-    it("places order successfully and increments nonce", async () => {
+    it("places order successfully (nonce stays at on-chain value)", async () => {
       const client = createClient();
       expect(client.getNonce()).toBe(0n);
 
@@ -216,7 +216,8 @@ describe("PredictClobClient", () => {
       expect(result.success).toBe(true);
       expect(result.orderId).toBe("order-123");
       expect(result.status).toBe("OPEN");
-      expect(client.getNonce()).toBe(1n);
+      // Nonce is an on-chain value — does not increment locally per order (salt provides uniqueness)
+      expect(client.getNonce()).toBe(0n);
     });
 
     it("returns dry-run result without calling orders API", async () => {
@@ -288,6 +289,77 @@ describe("PredictClobClient", () => {
       });
 
       expect(client.getNonce()).toBe(0n);
+    });
+
+    it("postOrder extracts orderId from wrapped { data: { id } } response", async () => {
+      const client = createClient();
+
+      // Auth sequence
+      mockAuthSequence();
+      // GET /v1/markets/{marketId} for exchange resolution
+      mockFetch.mockResolvedValueOnce(mockResponse({ isNegRisk: false, isYieldBearing: false }));
+      // POST /v1/orders — wrapped response with data.id
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { id: "wrapped-order-789" } }));
+
+      const result = await client.placeOrder({
+        tokenId: "999",
+        side: "BUY",
+        price: 0.5,
+        size: 100,
+        marketId: "market-abc",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.orderId).toBe("wrapped-order-789");
+    });
+
+    it("postOrder extracts orderId from { id } response", async () => {
+      const client = createClient();
+
+      // Auth sequence
+      mockAuthSequence();
+      // GET /v1/markets/{marketId} for exchange resolution
+      mockFetch.mockResolvedValueOnce(mockResponse({ isNegRisk: false, isYieldBearing: false }));
+      // POST /v1/orders — flat response with id
+      mockFetch.mockResolvedValueOnce(mockResponse({ id: "flat-order-456" }));
+
+      const result = await client.placeOrder({
+        tokenId: "999",
+        side: "BUY",
+        price: 0.5,
+        size: 100,
+        marketId: "market-abc",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.orderId).toBe("flat-order-456");
+    });
+
+    it("returns failure without retrying on CollateralPerMarket error", async () => {
+      const client = createClient();
+      mockAuthSequence();
+      mockFetch.mockResolvedValueOnce(mockResponse({ isNegRisk: false, isYieldBearing: false }));
+      // POST /v1/orders — 400 with CollateralPerMarket
+      mockFetch.mockResolvedValueOnce(
+        mockResponse("CollateralPerMarketExceededError: limit reached", 400),
+      );
+
+      const result = await client.placeOrder({
+        tokenId: "999",
+        side: "BUY",
+        price: 0.5,
+        size: 100,
+        marketId: "market-abc",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("collateral limit");
+      // withRetry calls the function once (mocked to just invoke fn directly).
+      // postOrder returns an OrderResult (doesn't throw), so no retry.
+      const orderCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => String(c[0]).includes("/v1/orders") && c[1]?.method === "POST",
+      );
+      expect(orderCalls).toHaveLength(1);
     });
   });
 
@@ -375,6 +447,29 @@ describe("PredictClobClient", () => {
       mockAuthSequence();
       // GET /v1/orders — 500
       mockFetch.mockResolvedValueOnce(mockResponse("Server Error", 500));
+
+      const orders = await client.getOpenOrders();
+      expect(orders).toEqual([]);
+    });
+
+    it("handles wrapped { data: [...] } response", async () => {
+      const client = createClient();
+
+      mockAuthSequence();
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ data: [{ orderId: "o1", tokenId: "t1", side: "BUY", price: 0.5, size: 100 }] }),
+      );
+
+      const orders = await client.getOpenOrders();
+      expect(orders).toHaveLength(1);
+      expect(orders[0].orderId).toBe("o1");
+    });
+
+    it("returns empty array when response is non-array object without data", async () => {
+      const client = createClient();
+
+      mockAuthSequence();
+      mockFetch.mockResolvedValueOnce(mockResponse({ success: true, orders: [] }));
 
       const orders = await client.getOpenOrders();
       expect(orders).toEqual([]);
@@ -476,13 +571,20 @@ describe("PredictClobClient", () => {
   // -------------------------------------------------------------------------
 
   describe("ensureApprovals", () => {
+    // ensureApprovals now loops over 3 CTF/exchange pairs (4 CTF checks) + 4 USDT exchange checks = 8 readContract calls
     it("waits for CTF approval receipt", async () => {
       const client = createClient();
 
-      // CTF not approved, USDT already approved
+      // First CTF pair not approved, rest approved; all USDT approved
       mockPublicClient.readContract
-        .mockResolvedValueOnce(false)   // isApprovedForAll → false
-        .mockResolvedValueOnce(1n);     // USDT allowance > 0
+        .mockResolvedValueOnce(false)  // CTF standard → exchange standard: not approved
+        .mockResolvedValueOnce(true)   // CTF standard → exchange negrisk: approved
+        .mockResolvedValueOnce(true)   // CTF yield → exchange yield: approved
+        .mockResolvedValueOnce(true)   // CTF yield_negrisk → exchange yield_negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → standard: approved
+        .mockResolvedValueOnce(1n)     // USDT → negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → yield: approved
+        .mockResolvedValueOnce(1n);    // USDT → yield_negrisk: approved
 
       mockWalletClient.writeContract.mockResolvedValueOnce("0xctftxhash");
       mockPublicClient.waitForTransactionReceipt.mockResolvedValueOnce({
@@ -501,10 +603,16 @@ describe("PredictClobClient", () => {
     it("waits for USDT approval receipt", async () => {
       const client = createClient();
 
-      // CTF already approved, USDT not approved
+      // All CTF approved; first USDT not approved, rest approved
       mockPublicClient.readContract
-        .mockResolvedValueOnce(true)  // isApprovedForAll → true
-        .mockResolvedValueOnce(0n);   // USDT allowance = 0
+        .mockResolvedValueOnce(true)   // CTF standard → exchange standard: approved
+        .mockResolvedValueOnce(true)   // CTF standard → exchange negrisk: approved
+        .mockResolvedValueOnce(true)   // CTF yield → exchange yield: approved
+        .mockResolvedValueOnce(true)   // CTF yield_negrisk → exchange yield_negrisk: approved
+        .mockResolvedValueOnce(0n)     // USDT → standard: not approved
+        .mockResolvedValueOnce(1n)     // USDT → negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → yield: approved
+        .mockResolvedValueOnce(1n);    // USDT → yield_negrisk: approved
 
       mockWalletClient.writeContract.mockResolvedValueOnce("0xusdttxhash");
       mockPublicClient.waitForTransactionReceipt.mockResolvedValueOnce({
@@ -523,10 +631,16 @@ describe("PredictClobClient", () => {
     it("skips approval when already approved", async () => {
       const client = createClient();
 
-      // Both already approved
+      // All CTF approved, all USDT approved
       mockPublicClient.readContract
-        .mockResolvedValueOnce(true)   // isApprovedForAll → true
-        .mockResolvedValueOnce(1n);    // USDT allowance > 0
+        .mockResolvedValueOnce(true)   // CTF standard → exchange standard: approved
+        .mockResolvedValueOnce(true)   // CTF standard → exchange negrisk: approved
+        .mockResolvedValueOnce(true)   // CTF yield → exchange yield: approved
+        .mockResolvedValueOnce(true)   // CTF yield_negrisk → exchange yield_negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → standard: approved
+        .mockResolvedValueOnce(1n)     // USDT → negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → yield: approved
+        .mockResolvedValueOnce(1n);    // USDT → yield_negrisk: approved
 
       await client.ensureApprovals(mockPublicClient);
 
@@ -538,10 +652,16 @@ describe("PredictClobClient", () => {
       const { log } = await import("../logger.js");
       const client = createClient();
 
-      // CTF not approved
+      // First CTF pair not approved, rest approved; all USDT approved
       mockPublicClient.readContract
-        .mockResolvedValueOnce(false)  // isApprovedForAll → false
-        .mockResolvedValueOnce(1n);    // USDT OK
+        .mockResolvedValueOnce(false)  // CTF standard → exchange standard: not approved
+        .mockResolvedValueOnce(true)   // CTF standard → exchange negrisk: approved
+        .mockResolvedValueOnce(true)   // CTF yield → exchange yield: approved
+        .mockResolvedValueOnce(true)   // CTF yield_negrisk → exchange yield_negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → standard: approved
+        .mockResolvedValueOnce(1n)     // USDT → negrisk: approved
+        .mockResolvedValueOnce(1n)     // USDT → yield: approved
+        .mockResolvedValueOnce(1n);    // USDT → yield_negrisk: approved
 
       mockWalletClient.writeContract.mockResolvedValueOnce("0xrevertedtx");
       mockPublicClient.waitForTransactionReceipt.mockResolvedValueOnce({
@@ -574,7 +694,7 @@ describe("PredictClobClient", () => {
       expect(client.getNonce()).toBe(42n);
     });
 
-    it("nonce increments after successful order", async () => {
+    it("nonce stays at on-chain value after successful order", async () => {
       const client = createClient();
       client.setNonce(5n);
 
@@ -590,7 +710,8 @@ describe("PredictClobClient", () => {
         marketId: "mkt-1",
       });
 
-      expect(client.getNonce()).toBe(6n);
+      // Nonce is on-chain — not incremented locally
+      expect(client.getNonce()).toBe(5n);
     });
 
     it("nonce does not increment after failed order", async () => {

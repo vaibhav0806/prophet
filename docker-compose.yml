@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: prophit
+      POSTGRES_PASSWORD: prophit
+      POSTGRES_DB: prophit
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prophit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   anvil:
     image: ghcr.io/foundry-rs/foundry:latest
     entrypoint: ["anvil", "--host", "0.0.0.0"]
@@ -38,6 +54,23 @@ services:
     environment:
       RPC_URL: http://anvil:8545
       PORT: "3001"
+      DATABASE_URL: postgresql://prophit:prophit@postgres:5432/prophit
+
+  platform:
+    build:
+      context: .
+      dockerfile: packages/platform/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://prophit:prophit@postgres:5432/prophit
+      PORT: "4000"
 
   frontend:
     build:
@@ -45,9 +78,14 @@ services:
       dockerfile: packages/frontend/Dockerfile
     depends_on:
       - agent
+      - platform
     ports:
       - "3000:3000"
     environment:
       AGENT_URL: http://agent:3001
+      NEXT_PUBLIC_PLATFORM_URL: http://localhost:4000
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
+
+volumes:
+  pgdata:

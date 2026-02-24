@@ -72,6 +72,7 @@ export const config = {
     : undefined,
   // CLOB execution mode
   executionMode: (process.env.EXECUTION_MODE || "vault") as "vault" | "clob",
+  probableProxyAddress: (process.env.PROBABLE_PROXY_ADDRESS || undefined) as `0x${string}` | undefined,
   probableExchangeAddress: (process.env.PROBABLE_EXCHANGE_ADDRESS || "0xf99f5367ce708c66f0860b77b4331301a5597c86") as `0x${string}`,
   predictExchangeAddress: (process.env.PREDICT_EXCHANGE_ADDRESS || "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689") as `0x${string}`,
   orderExpirationSec: Number(process.env.ORDER_EXPIRATION_SEC ?? "300"),

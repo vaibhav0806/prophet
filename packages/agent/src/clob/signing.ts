@@ -33,6 +33,7 @@ export function buildOrder(params: {
   nonce: bigint;
   scale?: number; // amount scaling factor (default 1e6 for Polymarket/Probable, 1e18 for Predict)
   signatureType?: number; // default SIG_TYPE_EOA (0), use SIG_TYPE_POLY_PROXY (1) for proxy wallets
+  quantize?: boolean; // round amounts to ME precision (Probable: qty step 0.01, price tick 0.001)
 }): ClobOrder {
   const { maker, signer, tokenId, side, price, size, feeRateBps, expirationSec, nonce } = params;
 
@@ -40,8 +41,20 @@ export function buildOrder(params: {
   // Use a two-step multiply to avoid IEEE 754 precision loss: float*1e8 stays within
   // the 53-bit mantissa (~15 digits), then BigInt handles the remaining scale factor.
   const scaleBig = BigInt(params.scale ?? 1_000_000);
-  const sizeRaw = BigInt(Math.round(size * 1e8)) * scaleBig / 100_000_000n;
-  const sharesRaw = BigInt(Math.round((size / price) * 1e8)) * scaleBig / 100_000_000n;
+  let sizeRaw = BigInt(Math.round(size * 1e8)) * scaleBig / 100_000_000n;
+  let sharesRaw = BigInt(Math.round((size / price) * 1e8)) * scaleBig / 100_000_000n;
+
+  // Probable ME (PancakeSwap) requires amounts that produce clean qty (0.01 step)
+  // and price (0.001 tick). Round shares to step, then recompute size from exact
+  // price ratio to avoid precision-over-maximum errors.
+  if (params.quantize && scaleBig >= 1_000_000_000_000_000_000n) {
+    const QTY_STEP = 10n ** 16n; // 0.01 token
+    sharesRaw = (sharesRaw / QTY_STEP) * QTY_STEP;
+    if (sharesRaw === 0n) sharesRaw = QTY_STEP;
+    // Recompute size = shares * price using rational arithmetic (4dp price)
+    const priceScaled = BigInt(Math.round(price * 10000));
+    sizeRaw = sharesRaw * priceScaled / 10000n;
+  }
 
   const isBuy = side === "BUY";
 

@@ -124,7 +124,7 @@ describe("ProbableClobClient", () => {
   // ---------------------------------------------------------------------------
 
   describe("placeOrder", () => {
-    it("places order successfully and increments nonce", async () => {
+    it("places order successfully (nonce stays at on-chain value)", async () => {
       const client = makeClient();
       await authenticateClient(client);
 
@@ -143,7 +143,8 @@ describe("ProbableClobClient", () => {
       expect(result.success).toBe(true);
       expect(result.orderId).toBe("order-123");
       expect(result.status).toBe("SUBMITTED");
-      expect(client.getNonce()).toBe(1n);
+      // Nonce is on-chain — not incremented locally (salt provides uniqueness)
+      expect(client.getNonce()).toBe(0n);
     });
 
     it("returns dry-run result without calling API", async () => {
@@ -330,6 +331,17 @@ describe("ProbableClobClient", () => {
       expect(result.filledSize).toBe(0);
       expect(result.remainingSize).toBe(0);
     });
+
+    it("getOrderStatus returns FILLED on 404 (FOK order processed)", async () => {
+      const client = makeClient();
+      await authenticateClient(client);
+
+      mockFetchResponses({ ok: false, status: 404, body: {} });
+
+      const result = await client.getOrderStatus("order-fok-123");
+      expect(result.status).toBe("FILLED");
+      expect(result.orderId).toBe("order-fok-123");
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -441,6 +453,99 @@ describe("ProbableClobClient", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // validateSafe + autoFundSafe
+  // ---------------------------------------------------------------------------
+
+  describe("validateSafe + autoFundSafe", () => {
+    const PROXY = "0x2222222222222222222222222222222222222222" as `0x${string}`
+
+    function makeProxyClient() {
+      return new ProbableClobClient({
+        walletClient: mockWalletClient,
+        apiBase: API_BASE,
+        exchangeAddress: EXCHANGE,
+        chainId: CHAIN_ID,
+        proxyAddress: PROXY,
+      })
+    }
+
+    it("validateSafe throws when threshold !== 1", async () => {
+      const client = makeProxyClient()
+      await authenticateClient(client)
+
+      // ensureApprovals checks: CTF approved, USDT allowance, then validateSafe
+      mockPublicClient.readContract
+        .mockResolvedValueOnce(true)  // isApprovedForAll
+        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(2n)   // getThreshold → 2
+        .mockResolvedValueOnce([mockAccount.address]) // getOwners
+
+      await expect(client.ensureApprovals(mockPublicClient)).rejects.toThrow("threshold is 2")
+    })
+
+    it("validateSafe throws when EOA not in owners", async () => {
+      const client = makeProxyClient()
+      await authenticateClient(client)
+
+      mockPublicClient.readContract
+        .mockResolvedValueOnce(true)  // isApprovedForAll
+        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // getThreshold → 1
+        .mockResolvedValueOnce(["0x9999999999999999999999999999999999999999"]) // getOwners — different address
+
+      await expect(client.ensureApprovals(mockPublicClient)).rejects.toThrow("not an owner")
+    })
+
+    it("autoFundSafe transfers when Safe balance is low", async () => {
+      const client = makeProxyClient()
+      await authenticateClient(client)
+
+      const fundingThreshold = 500_000_000n // 500 USDT in 6-dec
+
+      mockPublicClient.readContract
+        .mockResolvedValueOnce(true)  // isApprovedForAll (CTF check from proxy)
+        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // getThreshold → 1
+        .mockResolvedValueOnce([mockAccount.address]) // getOwners — includes EOA
+        .mockResolvedValueOnce(100n * 10n ** 18n) // Safe USDT balanceOf → 100 USDT (below threshold)
+        .mockResolvedValueOnce(1000n * 10n ** 18n) // EOA USDT balanceOf → 1000 USDT
+
+      mockWalletClient.writeContract.mockResolvedValueOnce("0xfundhash" as `0x${string}`)
+      mockPublicClient.waitForTransactionReceipt.mockResolvedValueOnce({
+        status: "success",
+        blockNumber: 200n,
+      })
+
+      await client.ensureApprovals(mockPublicClient, fundingThreshold)
+
+      // Should have called writeContract for transfer
+      const transferCall = mockWalletClient.writeContract.mock.calls.find(
+        (c: any[]) => c[0]?.functionName === "transfer",
+      )
+      expect(transferCall).toBeDefined()
+    })
+
+    it("autoFundSafe skips when Safe balance is sufficient", async () => {
+      const client = makeProxyClient()
+      await authenticateClient(client)
+
+      const fundingThreshold = 500_000_000n // 500 USDT in 6-dec
+
+      mockPublicClient.readContract
+        .mockResolvedValueOnce(true)  // isApprovedForAll
+        .mockResolvedValueOnce(1n)   // USDT allowance
+        .mockResolvedValueOnce(1n)   // getThreshold → 1
+        .mockResolvedValueOnce([mockAccount.address]) // getOwners
+        .mockResolvedValueOnce(600n * 10n ** 18n) // Safe USDT balanceOf → 600 USDT (above threshold)
+
+      await client.ensureApprovals(mockPublicClient, fundingThreshold)
+
+      // writeContract should NOT have been called (no approvals needed, no funding needed)
+      expect(mockWalletClient.writeContract).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // nonce management
   // ---------------------------------------------------------------------------
 
@@ -456,7 +561,7 @@ describe("ProbableClobClient", () => {
       expect(client.getNonce()).toBe(42n);
     });
 
-    it("nonce persists across calls", async () => {
+    it("nonce stays constant across multiple orders", async () => {
       const client = makeClient();
       await authenticateClient(client);
 
@@ -464,11 +569,12 @@ describe("ProbableClobClient", () => {
 
       mockFetchResponses({ ok: true, status: 200, body: { orderId: "order-1" } });
       await client.placeOrder({ tokenId: "1", side: "BUY", price: 0.5, size: 100 });
-      expect(client.getNonce()).toBe(11n);
+      // Nonce is on-chain — not incremented locally
+      expect(client.getNonce()).toBe(10n);
 
       mockFetchResponses({ ok: true, status: 200, body: { orderId: "order-2" } });
       await client.placeOrder({ tokenId: "2", side: "BUY", price: 0.6, size: 50 });
-      expect(client.getNonce()).toBe(12n);
+      expect(client.getNonce()).toBe(10n);
     });
   });
 });

@@ -37,8 +37,21 @@ function getFirstTokenId(envVar: string): string | null {
   }
 }
 
+function getFirstMarketId(envVar: string): string | null {
+  const raw = process.env[envVar];
+  if (!raw) return null;
+  try {
+    const map = JSON.parse(raw) as Record<string, { predictMarketId?: string }>;
+    const first = Object.values(map)[0];
+    return first?.predictMarketId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const probableTokenId = getFirstTokenId("PROBABLE_MARKET_MAP");
 const predictTokenId = getFirstTokenId("PREDICT_MARKET_MAP");
+const predictMarketId = getFirstMarketId("PREDICT_MARKET_MAP");
 
 // ---------------------------------------------------------------------------
 // CLI flags
@@ -185,12 +198,14 @@ async function validatePredict(): Promise<void> {
   console.log(`Nonce: ${nonce}`);
 
   // Place minimal test order: $1, BUY, price=0.50
-  console.log("\nPlacing test order: $1 BUY @ 0.50...");
+  console.log(`\nPlacing test order: $1 BUY @ 0.50...`);
+  console.log(`Market ID: ${predictMarketId ?? "none (using default exchange)"}`);
   const result = await client.placeOrder({
     tokenId,
     side: "BUY",
     price: 0.50,
     size: 1,
+    ...(predictMarketId ? { marketId: predictMarketId } : {}),
   });
 
   console.log("\nOrder result:", JSON.stringify(result, null, 2));

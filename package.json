@@ -6,7 +6,11 @@
     "test:contracts": "cd packages/contracts && forge test -vvv",
     "dev:agent": "cd packages/agent && pnpm dev",
     "dev:frontend": "cd packages/frontend && pnpm dev",
-    "dev": "pnpm run --parallel dev:agent dev:frontend"
+    "dev:platform": "cd packages/platform && pnpm dev",
+    "dev": "pnpm run --parallel dev:agent dev:frontend dev:platform",
+    "db:generate": "cd packages/shared && pnpm drizzle-kit generate",
+    "db:migrate": "cd packages/shared && pnpm drizzle-kit migrate",
+    "db:studio": "cd packages/shared && pnpm drizzle-kit studio"
   },
   "engines": {
     "node": ">=18"

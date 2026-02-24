@@ -138,6 +138,7 @@ export class PredictProvider extends MarketProvider {
       conditionId: marketId,
       yesTokenId: mapping.yesTokenId,
       noTokenId: mapping.noTokenId,
+      predictMarketId: mapping.predictMarketId,
     };
   }
 

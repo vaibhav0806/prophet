@@ -66,7 +66,6 @@ const ERC20_APPROVE_ABI = [
 ] as const;
 
 // Well-known BSC addresses for Predict.fun
-const PREDICT_CTF_ADDRESS = "0x22DA1810B194ca018378464a58f6Ac2B10C9d244" as `0x${string}`;
 const BSC_USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
 // Predict.fun EIP-712 domain name (different from Polymarket/Probable "ClobExchange")
@@ -80,6 +79,26 @@ const PREDICT_EXCHANGE_STANDARD = "0x8BC070BEdAB741406F4B1Eb65A72bee27894B689" a
 const PREDICT_EXCHANGE_NEGRISK = "0x365fb81bd4A24D6303cd2F19c349dE6894D8d58A" as `0x${string}`;
 const PREDICT_EXCHANGE_YIELD = "0x6bEb5a40C032AFc305961162d8204CDA16DECFa5" as `0x${string}`;
 const PREDICT_EXCHANGE_YIELD_NEGRISK = "0x8A289d458f5a134bA40015085A8F50Ffb681B41d" as `0x${string}`;
+
+const ALL_PREDICT_EXCHANGES = [
+  PREDICT_EXCHANGE_STANDARD,
+  PREDICT_EXCHANGE_NEGRISK,
+  PREDICT_EXCHANGE_YIELD,
+  PREDICT_EXCHANGE_YIELD_NEGRISK,
+] as const;
+
+// CTF (conditional token) contracts — standard and yield-bearing variants
+const PREDICT_CTF_STANDARD = "0x22DA1810B194ca018378464a58f6Ac2B10C9d244" as `0x${string}`;
+const PREDICT_CTF_YIELD = "0x9400F8Ad57e9e0F352345935d6D3175975eb1d9F" as `0x${string}`;
+const PREDICT_CTF_NEGRISK = "0x22DA1810B194ca018378464a58f6Ac2B10C9d244" as `0x${string}`; // same as standard
+const PREDICT_CTF_YIELD_NEGRISK = "0xF64b0b318AAf83BD9071110af24D24445719A07F" as `0x${string}`;
+
+// Each CTF contract needs approval for its corresponding exchange(s)
+const CTF_EXCHANGE_PAIRS: Array<{ ctf: `0x${string}`; exchanges: `0x${string}`[] }> = [
+  { ctf: PREDICT_CTF_STANDARD, exchanges: [PREDICT_EXCHANGE_STANDARD, PREDICT_EXCHANGE_NEGRISK] },
+  { ctf: PREDICT_CTF_YIELD, exchanges: [PREDICT_EXCHANGE_YIELD] },
+  { ctf: PREDICT_CTF_YIELD_NEGRISK, exchanges: [PREDICT_EXCHANGE_YIELD_NEGRISK] },
+];
 
 const MIN_FEE_RATE_BPS = 200;
 
@@ -211,8 +230,9 @@ export class PredictClobClient implements ClobClient {
     const cached = this.exchangeCache.get(marketId);
     if (cached) return cached;
 
+    const jwt = await this.ensureAuth();
     const res = await fetch(`${this.apiBase}/v1/markets/${marketId}`, {
-      headers: { "x-api-key": this.apiKey },
+      headers: { Authorization: `Bearer ${jwt}`, "x-api-key": this.apiKey },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
@@ -220,9 +240,11 @@ export class PredictClobClient implements ClobClient {
       throw new Error(`Predict GET /v1/markets/${marketId} failed (${res.status}): ${body}`);
     }
 
-    const data = (await res.json()) as { isNegRisk?: boolean; isYieldBearing?: boolean };
-    const isNegRisk = data.isNegRisk ?? false;
-    const isYieldBearing = data.isYieldBearing ?? false;
+    const json = (await res.json()) as { data?: { isNegRisk?: boolean; isYieldBearing?: boolean }; isNegRisk?: boolean; isYieldBearing?: boolean };
+    // API wraps response in { success, data: { ... } }
+    const market = json.data ?? json;
+    const isNegRisk = market.isNegRisk ?? false;
+    const isYieldBearing = market.isYieldBearing ?? false;
 
     let exchange: `0x${string}`;
     if (isYieldBearing && isNegRisk) {
@@ -351,7 +373,7 @@ export class PredictClobClient implements ClobClient {
             hash,
           },
           pricePerShare,
-          strategy: "IOC",
+          strategy: "MARKET",
         },
       };
 
@@ -371,6 +393,8 @@ export class PredictClobClient implements ClobClient {
         { retries: 2, label: "Predict placeOrder" },
       );
 
+      if (!res.success) return res;
+
       log.info("Predict order placed", {
         orderId: res.orderId,
         tokenId: params.tokenId,
@@ -378,7 +402,6 @@ export class PredictClobClient implements ClobClient {
         price: params.price,
         size: params.size,
       });
-      this.nonce += 1n;
 
       return res;
     } catch (err) {
@@ -423,17 +446,25 @@ export class PredictClobClient implements ClobClient {
         const body = await retry.text();
         throw new Error(`Predict POST /v1/orders failed after re-auth (${retry.status}): ${body}`);
       }
-      const data = (await retry.json()) as { orderId?: string; status?: string };
-      return { success: true, orderId: data.orderId, status: data.status };
+      const retryRaw = await retry.json();
+      const retryData = (retryRaw?.data && typeof retryRaw.data === "object" ? retryRaw.data : retryRaw) as Record<string, unknown>;
+      const retryOrderId = String(retryData.orderId ?? retryData.id ?? retryData.order_id ?? "");
+      return { success: true, orderId: retryOrderId || undefined, status: typeof retryData.status === "string" ? retryData.status : undefined };
     }
 
     if (!res.ok) {
       const body = await res.text();
+      if (res.status === 400 && body.includes("CollateralPerMarket")) {
+        log.error("Predict: per-market collateral limit exceeded — not retrying", { body });
+        return { success: false, error: "Per-market collateral limit exceeded. Reduce position size or wait for existing positions to close." };
+      }
       throw new Error(`Predict POST /v1/orders failed (${res.status}): ${body}`);
     }
 
-    const data = (await res.json()) as { orderId?: string; status?: string };
-    return { success: true, orderId: data.orderId, status: data.status };
+    const raw = await res.json();
+    const data = (raw?.data && typeof raw.data === "object" ? raw.data : raw) as Record<string, unknown>;
+    const orderId = String(data.orderId ?? data.id ?? data.order_id ?? "");
+    return { success: true, orderId: orderId || undefined, status: typeof data.status === "string" ? data.status : undefined };
   }
 
   async cancelOrder(orderId: string, _tokenId?: string): Promise<boolean> {
@@ -520,15 +551,16 @@ export class PredictClobClient implements ClobClient {
         return [];
       }
 
-      const data = (await res.json()) as Array<{
+      const json = await res.json();
+      const data = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+
+      return (data as Array<{
         orderId: string;
         tokenId: string;
         side: string;
         price: number | string;
         size: number | string;
-      }>;
-
-      return data.map((o) => ({
+      }>).map((o) => ({
         orderId: o.orderId,
         tokenId: o.tokenId,
         side: (o.side === "BUY" ? "BUY" : "SELL") as OrderSide,
@@ -564,6 +596,12 @@ export class PredictClobClient implements ClobClient {
       }
 
       if (!res.ok) {
+        // MARKET orders fill instantly and are removed from the API.
+        // A 404 after a successful POST means the order was processed → treat as FILLED.
+        if (res.status === 404) {
+          log.info("Predict getOrderStatus 404 — MARKET order processed (treating as FILLED)", { orderId });
+          return { orderId, status: "FILLED", filledSize: 0, remainingSize: 0 };
+        }
         log.warn("Predict getOrderStatus failed", { orderId, status: res.status });
         return { orderId, status: "UNKNOWN", filledSize: 0, remainingSize: 0 };
       }
@@ -611,84 +649,86 @@ export class PredictClobClient implements ClobClient {
     const account = this.walletClient.account;
     if (!account) throw new Error("WalletClient has no account");
 
-    // Check & set ERC-1155 (CTF token) isApprovedForAll
-    try {
-      const ctfApproved = await publicClient.readContract({
-        address: PREDICT_CTF_ADDRESS,
-        abi: ERC1155_ABI,
-        functionName: "isApprovedForAll",
-        args: [account.address, this.exchangeAddress],
-      });
-      if (!ctfApproved) {
-        log.warn("Predict CTF (ERC-1155) not approved — sending setApprovalForAll", {
-          ctf: PREDICT_CTF_ADDRESS,
-          exchange: this.exchangeAddress,
-          owner: account.address,
-        });
+    // Approve all CTF contracts for their corresponding exchanges
+    for (const { ctf, exchanges } of CTF_EXCHANGE_PAIRS) {
+      for (const exchange of exchanges) {
         try {
-          const txHash = await this.walletClient.writeContract({
-            account,
-            address: PREDICT_CTF_ADDRESS,
-            abi: ERC1155_SET_APPROVAL_ABI,
-            functionName: "setApprovalForAll",
-            args: [this.exchangeAddress, true],
-            chain: this.walletClient.chain,
+          const approved = await publicClient.readContract({
+            address: ctf,
+            abi: ERC1155_ABI,
+            functionName: "isApprovedForAll",
+            args: [account.address, exchange],
           });
-          log.info("Predict CTF setApprovalForAll tx sent, waiting for confirmation", { txHash });
-          const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-          if (receipt.status === "reverted") {
-            log.error("Predict CTF setApprovalForAll reverted", { txHash });
+          if (!approved) {
+            log.warn("Predict CTF (ERC-1155) not approved — sending setApprovalForAll", {
+              ctf, exchange, owner: account.address,
+            });
+            try {
+              const txHash = await this.walletClient.writeContract({
+                account,
+                address: ctf,
+                abi: ERC1155_SET_APPROVAL_ABI,
+                functionName: "setApprovalForAll",
+                args: [exchange, true],
+                chain: this.walletClient.chain,
+              });
+              log.info("Predict CTF setApprovalForAll tx sent, waiting for confirmation", { txHash });
+              const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+              if (receipt.status === "reverted") {
+                log.error("Predict CTF setApprovalForAll reverted", { txHash });
+              } else {
+                log.info("Predict CTF setApprovalForAll confirmed", { txHash, blockNumber: receipt.blockNumber });
+              }
+            } catch (txErr) {
+              log.error("Failed to send CTF setApprovalForAll tx", { error: String(txErr) });
+            }
           } else {
-            log.info("Predict CTF setApprovalForAll confirmed", { txHash, blockNumber: receipt.blockNumber });
+            log.info("Predict CTF (ERC-1155) approval OK", { ctf, exchange });
           }
-        } catch (txErr) {
-          log.error("Failed to send CTF setApprovalForAll tx", { error: String(txErr) });
+        } catch (err) {
+          log.error("Failed to check Predict CTF approval", { ctf, exchange, error: String(err) });
         }
-      } else {
-        log.info("Predict CTF (ERC-1155) approval OK");
       }
-    } catch (err) {
-      log.error("Failed to check Predict CTF approval", { error: String(err) });
     }
 
-    // Check & set USDT allowance
-    try {
-      const allowance = await publicClient.readContract({
-        address: BSC_USDT_ADDRESS,
-        abi: ERC20_ABI,
-        functionName: "allowance",
-        args: [account.address, this.exchangeAddress],
-      });
-      if (allowance === 0n) {
-        log.warn("Predict USDT allowance is zero — sending approve", {
-          usdt: BSC_USDT_ADDRESS,
-          exchange: this.exchangeAddress,
-          owner: account.address,
+    // Approve USDT for all exchange contracts
+    for (const exchange of ALL_PREDICT_EXCHANGES) {
+      try {
+        const allowance = await publicClient.readContract({
+          address: BSC_USDT_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: "allowance",
+          args: [account.address, exchange],
         });
-        try {
-          const txHash = await this.walletClient.writeContract({
-            account,
-            address: BSC_USDT_ADDRESS,
-            abi: ERC20_APPROVE_ABI,
-            functionName: "approve",
-            args: [this.exchangeAddress, 2n ** 256n - 1n],
-            chain: this.walletClient.chain,
+        if (allowance === 0n) {
+          log.warn("Predict USDT allowance is zero — sending approve", {
+            usdt: BSC_USDT_ADDRESS, exchange, owner: account.address,
           });
-          log.info("Predict USDT approve tx sent, waiting for confirmation", { txHash });
-          const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-          if (receipt.status === "reverted") {
-            log.error("Predict USDT approve reverted", { txHash });
-          } else {
-            log.info("Predict USDT approve confirmed", { txHash, blockNumber: receipt.blockNumber });
+          try {
+            const txHash = await this.walletClient.writeContract({
+              account,
+              address: BSC_USDT_ADDRESS,
+              abi: ERC20_APPROVE_ABI,
+              functionName: "approve",
+              args: [exchange, 2n ** 256n - 1n],
+              chain: this.walletClient.chain,
+            });
+            log.info("Predict USDT approve tx sent, waiting for confirmation", { txHash });
+            const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+            if (receipt.status === "reverted") {
+              log.error("Predict USDT approve reverted", { txHash });
+            } else {
+              log.info("Predict USDT approve confirmed", { txHash, blockNumber: receipt.blockNumber });
+            }
+          } catch (txErr) {
+            log.error("Failed to send USDT approve tx", { error: String(txErr) });
           }
-        } catch (txErr) {
-          log.error("Failed to send USDT approve tx", { error: String(txErr) });
+        } else {
+          log.info("Predict USDT allowance OK", { exchange, allowance: allowance.toString() });
         }
-      } else {
-        log.info("Predict USDT allowance OK", { allowance: allowance.toString() });
+      } catch (err) {
+        log.error("Failed to check Predict USDT allowance", { exchange, error: String(err) });
       }
-    } catch (err) {
-      log.error("Failed to check Predict USDT allowance", { error: String(err) });
     }
   }
 }

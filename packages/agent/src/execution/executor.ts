@@ -77,6 +77,7 @@ const UNWIND_POLL_INTERVAL_MS = 10_000; // 10 seconds
 interface ClobClients {
   probable?: ClobClient;
   predict?: ClobClient;
+  probableProxyAddress?: `0x${string}`;
 }
 
 interface MarketMetaResolver {
@@ -285,7 +286,7 @@ export class Executor {
       return;
     }
 
-    // Pre-check USDT balance (EOA — covers Predict; Probable checks Safe-side via API)
+    // Pre-check USDT balance (EOA covers Predict leg; Safe covers Probable leg when configured)
     const account = this.walletClient?.account;
     if (account && !this.config.dryRun) {
       try {
@@ -295,17 +296,43 @@ export class Executor {
           functionName: "balanceOf",
           args: [account.address],
         });
-        // BSC USDT is 18 decimals; total cost ≈ sizeUsdt * 2 legs
-        const requiredWei = BigInt(Math.ceil(sizeUsdt * 2)) * 10n ** 18n;
+        // When Safe is configured, EOA only needs to cover the non-Probable leg
+        const eoaLegs = this.clobClients.probableProxyAddress ? 1 : 2;
+        const requiredWei = BigInt(Math.round(sizeUsdt * eoaLegs * 1e6)) * 10n ** 12n;
         if (usdtBalance < requiredWei) {
-          log.warn("CLOB: insufficient USDT balance, skipping", {
-            balance: Number(usdtBalance / 10n ** 18n),
-            required: sizeUsdt * 2,
+          log.warn("CLOB: insufficient EOA USDT balance, skipping", {
+            balance: Number(usdtBalance) / 1e18,
+            required: sizeUsdt * eoaLegs,
           });
           return;
         }
       } catch (err) {
         log.warn("CLOB: failed to check USDT balance, proceeding anyway", { error: String(err) });
+      }
+    }
+
+    // Safe USDT balance pre-check (for Probable leg)
+    const proxyAddr = this.clobClients.probableProxyAddress;
+    if (proxyAddr && !this.config.dryRun &&
+        (opportunity.protocolA.toLowerCase() === "probable" || opportunity.protocolB.toLowerCase() === "probable")) {
+      try {
+        const safeBalance = await this.publicClient.readContract({
+          address: BSC_USDT,
+          abi: erc20BalanceOfAbi,
+          functionName: "balanceOf",
+          args: [proxyAddr],
+        });
+        const requiredWei = BigInt(Math.round(sizeUsdt * 1e6)) * 10n ** 12n;
+        if (safeBalance < requiredWei) {
+          log.warn("CLOB: Safe USDT balance insufficient for Probable leg, skipping", {
+            safe: proxyAddr,
+            balance: Number(safeBalance) / 1e18,
+            required: sizeUsdt,
+          });
+          return;
+        }
+      } catch (err) {
+        log.warn("CLOB: failed to check Safe USDT balance, proceeding anyway", { error: String(err) });
       }
     }
 
@@ -320,6 +347,7 @@ export class Executor {
       side: "BUY",
       price: priceA,
       size: sizeUsdt,
+      ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
     };
 
     const legBParams: PlaceOrderParams = {
@@ -327,6 +355,7 @@ export class Executor {
       side: "BUY",
       price: priceB,
       size: sizeUsdt,
+      ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
     };
 
     log.info("Executing arb (CLOB mode)", {
@@ -344,6 +373,11 @@ export class Executor {
       clientB.placeOrder(legBParams),
     ]);
 
+    const isFilledStatus = (s?: string) => {
+      const u = s?.toUpperCase();
+      return u === "FILLED" || u === "MATCHED";
+    };
+
     const legA: ClobLeg = {
       platform: opportunity.protocolA,
       orderId: resultA.orderId ?? "",
@@ -351,8 +385,9 @@ export class Executor {
       side: "BUY",
       price: priceA,
       size: sizeUsdt,
-      filled: false,
-      filledSize: 0,
+      filled: isFilledStatus(resultA.status),
+      filledSize: isFilledStatus(resultA.status) ? sizeUsdt : 0,
+      ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
     };
 
     const legB: ClobLeg = {
@@ -362,8 +397,9 @@ export class Executor {
       side: "BUY",
       price: priceB,
       size: sizeUsdt,
-      filled: false,
-      filledSize: 0,
+      filled: isFilledStatus(resultB.status),
+      filledSize: isFilledStatus(resultB.status) ? sizeUsdt : 0,
+      ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
     };
 
     if (!resultA.success && !resultB.success) {
@@ -408,6 +444,13 @@ export class Executor {
       position.legA.filled = true;
       position.legB.filled = true;
       log.info("DRY RUN: position marked FILLED (no real orders placed)");
+      return position;
+    }
+
+    // Fast-path: if both legs already reported FILLED/MATCHED (e.g. FOK orders), skip polling
+    if (position.legA.filled && position.legB.filled) {
+      position.status = "FILLED";
+      log.info("Both legs reported FILLED at placement — skipping poll", { positionId: position.id });
       return position;
     }
 
@@ -571,6 +614,7 @@ export class Executor {
     try {
       const result = await client.placeOrder({
         tokenId: leg.tokenId, side: "SELL", price, size,
+        ...(leg.marketId ? { marketId: leg.marketId } : {}),
       });
 
       if (!result.success || !result.orderId) {

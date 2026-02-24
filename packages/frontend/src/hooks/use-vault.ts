@@ -1,22 +1,10 @@
 'use client'
 
-import { useReadContract } from 'wagmi'
-import { ADDRESSES, VAULT_ABI, addressesConfigured } from '@/lib/contracts'
-
+// DEPRECATED: stub kept so old pages compile. Will be removed with old pages.
 export function useVaultBalance() {
-  return useReadContract({
-    address: ADDRESSES.vault,
-    abi: VAULT_ABI,
-    functionName: 'vaultBalance',
-    query: { enabled: addressesConfigured },
-  })
+  return { data: undefined, isLoading: false, error: null }
 }
 
 export function usePositionCount() {
-  return useReadContract({
-    address: ADDRESSES.vault,
-    abi: VAULT_ABI,
-    functionName: 'positionCount',
-    query: { enabled: addressesConfigured },
-  })
+  return { data: undefined, isLoading: false, error: null }
 }

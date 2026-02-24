@@ -69,6 +69,41 @@ const ERC20_APPROVE_ABI = [{
   stateMutability: "nonpayable" as const,
 }] as const
 
+const SAFE_GET_THRESHOLD_ABI = [{
+  type: "function" as const,
+  name: "getThreshold" as const,
+  inputs: [],
+  outputs: [{ name: "", type: "uint256" as const }],
+  stateMutability: "view" as const,
+}] as const
+
+const SAFE_GET_OWNERS_ABI = [{
+  type: "function" as const,
+  name: "getOwners" as const,
+  inputs: [],
+  outputs: [{ name: "", type: "address[]" as const }],
+  stateMutability: "view" as const,
+}] as const
+
+const ERC20_BALANCE_OF_ABI = [{
+  type: "function" as const,
+  name: "balanceOf" as const,
+  inputs: [{ name: "account", type: "address" as const }],
+  outputs: [{ name: "", type: "uint256" as const }],
+  stateMutability: "view" as const,
+}] as const
+
+const ERC20_TRANSFER_ABI = [{
+  type: "function" as const,
+  name: "transfer" as const,
+  inputs: [
+    { name: "to", type: "address" as const },
+    { name: "amount", type: "uint256" as const },
+  ],
+  outputs: [{ name: "", type: "bool" as const }],
+  stateMutability: "nonpayable" as const,
+}] as const
+
 /** BSC USDT */
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`
 
@@ -275,6 +310,7 @@ export class ProbableClobClient implements ClobClient {
         nonce: this.nonce,
         scale: PROBABLE_SCALE,
         signatureType: this.proxyAddress ? 2 : 0,
+        quantize: true,
       })
 
       const signed = await signOrder(
@@ -357,7 +393,6 @@ export class ProbableClobClient implements ClobClient {
       }
 
       log.info("Probable order placed", { data })
-      this.nonce += 1n
 
       const rawId = data.orderId ?? data.orderID ?? data.id
       return {
@@ -438,8 +473,9 @@ export class ProbableClobClient implements ClobClient {
         return []
       }
 
-      const data = await res.json() as Array<Record<string, unknown>>
-      return data.map((o) => ({
+      const json = await res.json()
+      const data = Array.isArray(json) ? json : Array.isArray(json?.orders) ? json.orders : []
+      return (data as Array<Record<string, unknown>>).map((o) => ({
         orderId: String(o.orderID ?? o.orderId ?? o.id ?? ""),
         tokenId: String(o.tokenId ?? o.asset_id ?? ""),
         side: (String(o.side).toUpperCase() === "SELL" ? "SELL" : "BUY") as OrderSide,
@@ -468,6 +504,12 @@ export class ProbableClobClient implements ClobClient {
       )
 
       if (!res.ok) {
+        // FOK orders fill/cancel instantly and are removed from the order book.
+        // A 404 after a successful POST means the order was processed and is gone → treat as FILLED.
+        if (res.status === 404) {
+          log.info("Probable getOrderStatus 404 — FOK order processed (treating as FILLED)", { orderId })
+          return { orderId, status: "FILLED", filledSize: 0, remainingSize: 0 }
+        }
         log.warn("Probable getOrderStatus failed", { orderId, status: res.status })
         return { orderId, status: "UNKNOWN", filledSize: 0, remainingSize: 0 }
       }
@@ -511,7 +553,7 @@ export class ProbableClobClient implements ClobClient {
     }
   }
 
-  async ensureApprovals(publicClient: PublicClient): Promise<void> {
+  async ensureApprovals(publicClient: PublicClient, fundingThreshold?: bigint): Promise<void> {
     const account = this.walletClient.account
     if (!account) {
       log.warn("Cannot check approvals: WalletClient has no account")
@@ -604,6 +646,134 @@ export class ProbableClobClient implements ClobClient {
       }
     } else {
       log.info("USDT allowance for Probable exchange", { allowance, from: approvalOwner })
+    }
+
+    // Safe validation + auto-funding
+    if (this.proxyAddress) {
+      await this.validateSafe(publicClient)
+      if (fundingThreshold !== undefined) {
+        await this.autoFundSafe(publicClient, fundingThreshold)
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Safe validation + auto-funding
+  // ---------------------------------------------------------------------------
+
+  private async validateSafe(publicClient: PublicClient): Promise<void> {
+    const account = this.walletClient.account
+    if (!account || !this.proxyAddress) return
+
+    const [threshold, owners] = await Promise.all([
+      publicClient.readContract({
+        address: this.proxyAddress,
+        abi: SAFE_GET_THRESHOLD_ABI,
+        functionName: "getThreshold",
+      }),
+      publicClient.readContract({
+        address: this.proxyAddress,
+        abi: SAFE_GET_OWNERS_ABI,
+        functionName: "getOwners",
+      }),
+    ])
+
+    if (threshold !== 1n) {
+      throw new Error(`Safe threshold is ${threshold}, expected 1 (multi-sig not supported)`)
+    }
+
+    const eoaLower = account.address.toLowerCase()
+    const isOwner = (owners as readonly `0x${string}`[]).some(
+      (o) => o.toLowerCase() === eoaLower,
+    )
+    if (!isOwner) {
+      throw new Error(`EOA ${account.address} is not an owner of Safe ${this.proxyAddress}`)
+    }
+
+    log.info("Safe validation passed", {
+      safe: this.proxyAddress,
+      threshold: Number(threshold),
+      ownerCount: (owners as readonly `0x${string}`[]).length,
+      eoa: account.address,
+    })
+  }
+
+  private async autoFundSafe(publicClient: PublicClient, fundingThreshold: bigint): Promise<void> {
+    const account = this.walletClient.account
+    if (!account || !this.proxyAddress) return
+
+    // Read Safe USDT balance
+    const safeBalance = await publicClient.readContract({
+      address: BSC_USDT,
+      abi: ERC20_BALANCE_OF_ABI,
+      functionName: "balanceOf",
+      args: [this.proxyAddress],
+    })
+
+    // fundingThreshold is in 6-decimal format (from config.maxPositionSize); convert to 18-dec
+    const threshold18 = fundingThreshold * 10n ** 12n
+
+    if (safeBalance >= threshold18) {
+      log.info("Safe USDT balance sufficient", {
+        safe: this.proxyAddress,
+        balance: safeBalance.toString(),
+        threshold: threshold18.toString(),
+      })
+      return
+    }
+
+    const deficit = threshold18 - safeBalance
+
+    // Check EOA has enough USDT — reserve half the threshold for EOA's own Predict leg
+    const eoaReserve = threshold18 / 2n
+    const eoaBalance = await publicClient.readContract({
+      address: BSC_USDT,
+      abi: ERC20_BALANCE_OF_ABI,
+      functionName: "balanceOf",
+      args: [account.address],
+    })
+
+    const transferable = eoaBalance > eoaReserve ? eoaBalance - eoaReserve : 0n
+    if (transferable === 0n) {
+      log.warn("EOA USDT insufficient to fund Safe (need to reserve for Predict leg)", {
+        eoaBalance: eoaBalance.toString(),
+        eoaReserve: eoaReserve.toString(),
+        safe: this.proxyAddress,
+      })
+      return
+    }
+
+    // Transfer the lesser of deficit and transferable (don't drain EOA below reserve)
+    const transferAmount = deficit < transferable ? deficit : transferable
+    if (transferAmount < deficit) {
+      log.warn("Auto-fund: partial transfer (reserving EOA balance for Predict leg)", {
+        deficit: deficit.toString(),
+        transferAmount: transferAmount.toString(),
+        eoaReserve: eoaReserve.toString(),
+      })
+    }
+
+    log.info("Auto-funding Safe with USDT", {
+      safe: this.proxyAddress,
+      transferAmount: transferAmount.toString(),
+      deficit: deficit.toString(),
+      eoaBalance: eoaBalance.toString(),
+    })
+
+    const txHash = await this.walletClient.writeContract({
+      account,
+      chain: this.walletClient.chain,
+      address: BSC_USDT,
+      abi: ERC20_TRANSFER_ABI,
+      functionName: "transfer",
+      args: [this.proxyAddress, transferAmount],
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+    if (receipt.status === "reverted") {
+      log.error("Auto-fund USDT transfer reverted", { txHash })
+    } else {
+      log.info("Auto-fund USDT transfer confirmed", { txHash, blockNumber: receipt.blockNumber, amount: transferAmount.toString() })
     }
   }
 

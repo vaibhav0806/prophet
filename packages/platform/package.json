@@ -1,0 +1,27 @@
+{
+  "name": "@prophit/platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@prophit/agent": "workspace:*",
+    "@prophit/shared": "workspace:*",
+    "@scure/bip32": "^2.0.1",
+    "@scure/bip39": "^2.0.1",
+    "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.38.4",
+    "hono": "^4.6.0",
+    "jose": "^6.1.3",
+    "siwe": "^3.0.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

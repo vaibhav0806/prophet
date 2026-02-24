@@ -13,6 +13,7 @@ export interface DiscoveredMarket {
   noTokenId: string;
   category?: string;
   hasLiquidity: boolean;
+  resolvesAt?: string; // ISO date string when market resolves
 }
 
 export interface MarketMatch {
@@ -76,6 +77,8 @@ interface PredictMarketRaw {
   tradingStatus: string;
   status: string;
   categorySlug: string;
+  endDate?: string;
+  closeDate?: string;
 }
 
 interface PredictMarketsListResponse {
@@ -281,6 +284,23 @@ async function fetchProbableMarkets(
       // conditionId: prefer explicit field, fall back to market id
       const conditionId = market.conditionId || market.id;
 
+      // Try various date field names that prediction market APIs commonly use
+      const rawEvent = event as unknown as Record<string, unknown>;
+      const rawMarket = market as unknown as Record<string, unknown>;
+      const endDateStr = (rawEvent.end_date ?? rawEvent.endDate ?? rawEvent.close_time ??
+                          rawEvent.resolution_date ?? rawMarket.end_date ?? rawMarket.endDate ??
+                          rawMarket.close_time ?? rawMarket.closeTime) as string | undefined;
+
+      let resolvesAt: string | undefined;
+      if (endDateStr) {
+        try {
+          const parsed = new Date(endDateStr);
+          if (!isNaN(parsed.getTime())) resolvesAt = parsed.toISOString();
+        } catch {
+          // ignore invalid dates
+        }
+      }
+
       discovered.push({
         platform: "Probable",
         id: market.id,
@@ -290,6 +310,7 @@ async function fetchProbableMarkets(
         noTokenId,
         category: event.tags?.[0]?.label,
         hasLiquidity: true, // Will be refined below if we add orderbook checks
+        resolvesAt,
       });
     }
   }
@@ -393,6 +414,15 @@ async function fetchPredictMarkets(
     const no = m.outcomes.find((o) => o.indexSet === 2);
     if (!yes || !no) continue;
 
+    const endDate = m.endDate ?? m.closeDate ?? (m as unknown as Record<string, unknown>).end_date as string | undefined;
+    let resolvesAt: string | undefined;
+    if (endDate) {
+      try {
+        const parsed = new Date(endDate);
+        if (!isNaN(parsed.getTime())) resolvesAt = parsed.toISOString();
+      } catch { /* ignore */ }
+    }
+
     discovered.push({
       platform: "Predict",
       id: String(m.id),
@@ -402,6 +432,7 @@ async function fetchPredictMarkets(
       noTokenId: no.onChainId,
       category: m.categorySlug,
       hasLiquidity: true, // checked at scan time, not discovery time
+      resolvesAt,
     });
   }
 

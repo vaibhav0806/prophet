@@ -85,6 +85,8 @@ export interface ClobLeg {
   filled: boolean;
   filledSize: number;
   transactionHash?: string;
+  /** Predict.fun market ID — needed for per-market exchange resolution during unwind */
+  marketId?: string;
 }
 
 export interface ClobPosition {
@@ -105,4 +107,6 @@ export interface MarketMeta {
   conditionId: string;
   yesTokenId: string;
   noTokenId: string;
+  /** Predict.fun numeric market ID — used for per-market exchange resolution */
+  predictMarketId?: string;
 }

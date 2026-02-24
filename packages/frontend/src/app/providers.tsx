@@ -1,22 +1,34 @@
-'use client'
+"use client";
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { WagmiProvider, createConfig, http } from 'wagmi'
-import { injected } from 'wagmi/connectors'
-import { appChain } from '@/lib/chains'
-import { useState } from 'react'
+import { WagmiProvider, createConfig, http } from "wagmi";
+import { bsc } from "wagmi/chains";
+import { injected, walletConnect } from "wagmi/connectors";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+
+const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
 
 const config = createConfig({
-  chains: [appChain],
-  connectors: [injected()],
+  chains: [bsc],
+  connectors: [
+    injected(),
+    ...(projectId ? [walletConnect({ projectId })] : []),
+  ],
   transports: {
-    [appChain.id]: http(),
+    [bsc.id]: http(),
   },
   ssr: false,
-})
+});
 
-export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient())
+export function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 5000,
+        retry: 1,
+      },
+    },
+  }));
 
   return (
     <WagmiProvider config={config}>
@@ -24,5 +36,5 @@ export function Providers({ children }: { children: React.ReactNode }) {
         {children}
       </QueryClientProvider>
     </WagmiProvider>
-  )
+  );
 }

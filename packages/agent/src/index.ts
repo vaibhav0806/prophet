@@ -7,7 +7,6 @@ import { OpinionProvider } from "./providers/opinion-provider.js";
 import { PredictProvider } from "./providers/predict-provider.js";
 import { ProbableProvider } from "./providers/probable-provider.js";
 import type { MarketProvider } from "./providers/base.js";
-import { detectArbitrage } from "./arbitrage/detector.js";
 import { MatchingPipeline } from "./matching/index.js";
 import { VaultClient } from "./execution/vault-client.js";
 import { Executor } from "./execution/executor.js";
@@ -17,11 +16,9 @@ import type { ClobClient } from "./clob/types.js";
 import { createServer } from "./api/server.js";
 import { log } from "./logger.js";
 import { loadState, saveState } from "./persistence.js";
-import type { ArbitOpportunity, MarketQuote, Position, ClobPosition, AgentStatus } from "./types.js";
-import { scorePositions } from "./yield/scorer.js";
-import { allocateCapital } from "./yield/allocator.js";
-import { checkRotations } from "./yield/rotator.js";
-import type { YieldStatus } from "./yield/types.js";
+import type { MarketQuote } from "./types.js";
+import { AgentInstance } from "./agent-instance.js";
+import type { QuoteStore } from "./agent-instance.js";
 import { runDiscovery } from "./discovery/pipeline.js";
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
@@ -36,50 +33,66 @@ const erc20BalanceOfAbi = [
   },
 ] as const;
 
-// --- Dedup prevention ---
-const DEDUP_WINDOW_MS = 5 * 60 * 1000;
-const recentTrades = new Map<string, number>();
-
-function opportunityHash(opp: ArbitOpportunity): string {
-  return `${opp.marketId}-${opp.protocolA}-${opp.protocolB}-${opp.buyYesOnA}`;
-}
-
-function isRecentlyTraded(opp: ArbitOpportunity): boolean {
-  const now = Date.now();
-  // Clean stale entries
-  for (const [key, ts] of recentTrades) {
-    if (now - ts > DEDUP_WINDOW_MS) recentTrades.delete(key);
+// --- Startup balance validation ---
+async function validateStartupBalances(): Promise<void> {
+  try {
+    const bnbBalance = await publicClient.getBalance({ address: account.address });
+    if (bnbBalance === 0n) {
+      log.error("STARTUP CHECK: EOA BNB balance is 0 — transactions will fail", { eoa: account.address });
+    } else if (bnbBalance < 10n ** 16n) { // < 0.01 BNB
+      log.warn("STARTUP CHECK: EOA BNB balance is low", {
+        eoa: account.address,
+        balance: formatUnits(bnbBalance, 18),
+      });
+    } else {
+      log.info("STARTUP CHECK: EOA BNB balance OK", {
+        eoa: account.address,
+        balance: formatUnits(bnbBalance, 18),
+      });
+    }
+  } catch (err) {
+    log.warn("STARTUP CHECK: failed to check BNB balance", { error: String(err) });
   }
-  const hash = opportunityHash(opp);
-  const lastTrade = recentTrades.get(hash);
-  return !!(lastTrade && now - lastTrade < DEDUP_WINDOW_MS);
-}
 
-function recordTrade(opp: ArbitOpportunity): void {
-  recentTrades.set(opportunityHash(opp), Date.now());
-  for (const [key, ts] of recentTrades) {
-    if (Date.now() - ts > DEDUP_WINDOW_MS) recentTrades.delete(key);
+  try {
+    const eoaUsdt = await publicClient.readContract({
+      address: BSC_USDT,
+      abi: erc20BalanceOfAbi,
+      functionName: "balanceOf",
+      args: [account.address],
+    });
+    if (eoaUsdt === 0n) {
+      log.warn("STARTUP CHECK: EOA USDT balance is 0", { eoa: account.address });
+    } else {
+      log.info("STARTUP CHECK: EOA USDT balance", {
+        eoa: account.address,
+        balance: formatUnits(eoaUsdt, 18),
+      });
+    }
+  } catch (err) {
+    log.warn("STARTUP CHECK: failed to check EOA USDT balance", { error: String(err) });
   }
-}
 
-// --- Daily loss limit ---
-let dailyStartBalance: bigint | null = null;
-let dailyLossResetAt = Date.now() + 24 * 60 * 60 * 1000;
-
-function checkDailyLoss(currentBalance: bigint): boolean {
-  if (Date.now() > dailyLossResetAt) {
-    dailyStartBalance = currentBalance;
-    dailyLossResetAt = Date.now() + 24 * 60 * 60 * 1000;
-    log.info("Daily loss counter reset", { balance: currentBalance.toString() });
+  if (config.probableProxyAddress) {
+    try {
+      const safeUsdt = await publicClient.readContract({
+        address: BSC_USDT,
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [config.probableProxyAddress],
+      });
+      if (safeUsdt === 0n) {
+        log.warn("STARTUP CHECK: Safe USDT balance is 0", { safe: config.probableProxyAddress });
+      } else {
+        log.info("STARTUP CHECK: Safe USDT balance", {
+          safe: config.probableProxyAddress,
+          balance: formatUnits(safeUsdt, 18),
+        });
+      }
+    } catch (err) {
+      log.warn("STARTUP CHECK: failed to check Safe USDT balance", { error: String(err) });
+    }
   }
-  if (dailyStartBalance === null) {
-    dailyStartBalance = currentBalance;
-  }
-  if (dailyStartBalance > currentBalance) {
-    const loss = dailyStartBalance - currentBalance;
-    if (loss >= config.dailyLossLimit) return false;
-  }
-  return true;
 }
 
 // --- Viem clients ---
@@ -184,29 +197,14 @@ if (config.chainId === 31337) {
   log.warn("Running on local devnet (chainId 31337). Set CHAIN_ID for production.");
 }
 
-// --- Agent state (loaded early so CLOB init can reference persisted nonces) ---
-let running = false;
-let lastScan = 0;
-let tradesExecuted = 0;
-let opportunities: ArbitOpportunity[] = [];
-let positions: Position[] = [];
-let clobPositions: ClobPosition[] = [];
-let scanTimer: ReturnType<typeof setTimeout> | null = null;
-let yieldStatus: YieldStatus | null = null;
-const startedAt = Date.now();
-
-// Load persisted state
+// --- Load persisted state (early so CLOB init can reference persisted nonces) ---
 const persisted = loadState();
 if (persisted) {
-  tradesExecuted = persisted.tradesExecuted;
-  positions = persisted.positions;
-  clobPositions = persisted.clobPositions ?? [];
-  lastScan = persisted.lastScan;
   log.info("Restored persisted state", {
-    tradesExecuted,
-    positions: positions.length,
-    clobPositions: clobPositions.length,
-    lastScan,
+    tradesExecuted: persisted.tradesExecuted,
+    positions: persisted.positions.length,
+    clobPositions: (persisted.clobPositions ?? []).length,
+    lastScan: persisted.lastScan,
   });
 }
 
@@ -225,6 +223,7 @@ if (config.executionMode === "clob") {
     chainId: config.chainId,
     expirationSec: config.orderExpirationSec,
     dryRun: config.dryRun,
+    proxyAddress: config.probableProxyAddress,
   });
 
   if (config.predictApiKey) {
@@ -260,8 +259,10 @@ if (config.executionMode === "clob") {
         }
       }
       // Check approvals
-      await probableClobClient!.ensureApprovals(publicClient);
+      await probableClobClient!.ensureApprovals(publicClient, config.maxPositionSize);
       if (predictClobClient) await predictClobClient.ensureApprovals(publicClient);
+      // Startup balance checks
+      await validateStartupBalances();
       log.info("CLOB clients initialized");
     } catch (err) {
       log.error("CLOB client init failed", { error: String(err) });
@@ -303,18 +304,10 @@ const executor = new Executor(
   vaultClient ?? undefined,
   config,
   publicClient,
-  { probable: probableClobClient, predict: predictClobClient },
+  { probable: probableClobClient, predict: predictClobClient, probableProxyAddress: config.probableProxyAddress },
   metaResolvers,
   walletClient,
 );
-
-// --- Graceful shutdown flag ---
-let shuttingDown = false;
-
-// Mutable config
-let minSpreadBps = config.minSpreadBps;
-let maxPositionSize = config.maxPositionSize;
-let scanIntervalMs = config.scanIntervalMs;
 
 // --- CLOB nonce collection for persistence ---
 function collectClobNonces(): Record<string, string> | undefined {
@@ -325,345 +318,104 @@ function collectClobNonces(): Record<string, string> | undefined {
   return nonces;
 }
 
-// --- Scan loop ---
-const SCAN_TIMEOUT_MS = 120_000; // 2 minutes
+// --- QuoteStore adapter: wraps providers for AgentInstance ---
+const providerQuoteStore: QuoteStore = {
+  async getLatestQuotes(): Promise<MarketQuote[]> {
+    const results = await Promise.allSettled(providers.map((p) => p.fetchQuotes()));
+    const allQuotes = results
+      .filter((r): r is PromiseFulfilledResult<MarketQuote[]> => r.status === "fulfilled")
+      .flatMap((r) => r.value);
+    const failedProviders = results
+      .map((r, i) => r.status === "rejected" ? providers[i].name : null)
+      .filter(Boolean);
+    if (failedProviders.length > 0) {
+      log.warn("Some providers failed", { failed: failedProviders });
+    }
+    log.info("Fetched quotes", { count: allQuotes.length });
+    return allQuotes;
+  },
+};
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
-    ),
-  ]);
-}
-
-let scanning = false;
-
-async function scan(): Promise<void> {
-  if (shuttingDown) return;
-  if (!running) return;
-  if (scanning) return;
-  scanning = true;
-
-  try {
-    if (clobInitPromise) await clobInitPromise;
-
+// --- Balance checker for daily loss limit ---
+async function getBalanceForLossCheck(): Promise<bigint> {
+  if (config.executionMode === "clob") {
     try {
-      await withTimeout((async () => {
-      log.info("Scanning for opportunities");
-
-      // Fetch quotes from all providers
-      const results = await Promise.allSettled(providers.map((p) => p.fetchQuotes()));
-      const allQuotes = results
-        .filter((r): r is PromiseFulfilledResult<MarketQuote[]> => r.status === "fulfilled")
-        .flatMap((r) => r.value);
-      const failedProviders = results
-        .map((r, i) => r.status === "rejected" ? providers[i].name : null)
-        .filter(Boolean);
-      if (failedProviders.length > 0) {
-        log.warn("Some providers failed", { failed: failedProviders });
-      }
-      log.info("Fetched quotes", { count: allQuotes.length });
-
-      // AI semantic matching: discover equivalent events across protocols
-      let matchedQuotes: MarketQuote[] = allQuotes;
-      if (matchingPipeline) {
-        try {
-          const clusters = await matchingPipeline.matchQuotes(allQuotes);
-          if (clusters.length > 0) {
-            // Assign a shared synthetic marketId to each verified cluster
-            // so detectArbitrage can group them together
-            const syntheticQuotes: MarketQuote[] = [];
-            for (let ci = 0; ci < clusters.length; ci++) {
-              const syntheticId = (`0x${"ee".repeat(31)}${ci.toString(16).padStart(2, "0")}`) as `0x${string}`;
-              for (const q of clusters[ci].quotes) {
-                syntheticQuotes.push({ ...q, marketId: syntheticId });
-              }
-            }
-            // Include both original quotes (for exact-match) and synthetic ones (for semantic-match)
-            matchedQuotes = [...allQuotes, ...syntheticQuotes];
-            log.info("AI matching found verified clusters", {
-              clusterCount: clusters.length,
-              syntheticQuotes: syntheticQuotes.length,
-            });
-          }
-        } catch (err) {
-          log.error("AI matching failed, falling back to exact-match", { error: String(err) });
-        }
-      }
-
-      // Detect arbitrage
-      const detected = detectArbitrage(matchedQuotes);
-      opportunities = detected;
-
-      // Filter by minSpreadBps
-      const actionable = detected.filter((o) => o.spreadBps >= minSpreadBps);
-      const fresh = actionable.filter((o) => !isRecentlyTraded(o));
-
-      // Daily loss limit check — use EOA balance in CLOB mode, vault balance in vault mode
-      let balanceForLossCheck = 0n;
-      if (config.executionMode === "clob") {
-        try {
-          const usdtBalance = await publicClient.readContract({
-            address: BSC_USDT,
-            abi: erc20BalanceOfAbi,
-            functionName: "balanceOf",
-            args: [account.address],
-          });
-          // BSC USDT is 18 decimals, dailyLossLimit is 6 decimals
-          balanceForLossCheck = usdtBalance / BigInt(1e12);
-        } catch (err) {
-          log.error("CLOB balance check failed — skipping execution this scan", { error: String(err) });
-          balanceForLossCheck = -1n; // sentinel: will fail loss check
-        }
-      } else if (vaultClient) {
-        try { balanceForLossCheck = await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
-      }
-      const withinLossLimit = balanceForLossCheck >= 0n && checkDailyLoss(balanceForLossCheck);
-      if (!withinLossLimit) {
-        log.warn("Daily loss limit reached, skipping execution", {
-          startBalance: dailyStartBalance?.toString(),
-          currentBalance: balanceForLossCheck.toString(),
-          limit: config.dailyLossLimit.toString(),
-        });
-      }
-
-      if (fresh.length > 0 && withinLossLimit) {
-        log.info("Found opportunities above threshold", {
-          count: fresh.length,
-          minSpreadBps,
-          bestSpreadBps: fresh[0].spreadBps,
-          bestProtocolA: fresh[0].protocolA,
-          bestProtocolB: fresh[0].protocolB,
-        });
-
-        // LLM risk assessment (if AI matching is enabled)
-        let effectiveMaxSize = maxPositionSize;
-        if (matchingPipeline) {
-          try {
-            const risk = await matchingPipeline.assessRisk(fresh[0], allQuotes);
-            const sizeMultiplier = BigInt(Math.floor(risk.recommendedSizeMultiplier * 100));
-            effectiveMaxSize = (maxPositionSize * sizeMultiplier) / 100n;
-            log.info("Risk-adjusted position size", {
-              riskScore: risk.riskScore,
-              multiplier: risk.recommendedSizeMultiplier,
-              originalMax: maxPositionSize.toString(),
-              adjustedMax: effectiveMaxSize.toString(),
-              concerns: risk.concerns,
-            });
-          } catch (err) {
-            log.error("Risk assessment failed, using default size", { error: String(err) });
-          }
-        }
-
-        try {
-          const result = await executor.executeBest(fresh[0], effectiveMaxSize);
-          tradesExecuted++;
-          recordTrade(fresh[0]);
-          // Track CLOB positions
-          if (result && config.executionMode === "clob") {
-            clobPositions.push(result);
-          }
-          // Persist immediately after trade to prevent nonce desync on crash
-          saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
-        } catch {
-          // Already logged in executor
-        }
-      } else if (fresh.length === 0) {
-        log.info("No opportunities above threshold", { minSpreadBps });
-      }
-
-      // Refresh positions (vault mode only)
-      if (vaultClient) {
-        try {
-          positions = await vaultClient.getAllPositions();
-        } catch {
-          // Vault may not have positions yet
-        }
-
-        // Close resolved positions
-        try {
-          const closed = await executor.closeResolved(positions);
-          if (closed > 0) {
-            log.info("Closed resolved positions", { count: closed });
-            positions = await vaultClient.getAllPositions();
-          }
-        } catch (err) {
-          log.error("Error closing resolved positions", { error: String(err) });
-        }
-      }
-
-      // Close resolved CLOB positions
-      if (config.executionMode === "clob" && clobPositions.length > 0) {
-        try {
-          const closedClob = await executor.closeResolvedClob(clobPositions);
-          if (closedClob > 0) {
-            log.info("Closed resolved CLOB positions", { count: closedClob });
-          }
-        } catch (err) {
-          log.error("Error closing resolved CLOB positions", { error: String(err) });
-        }
-      }
-
-      // --- Yield rotation ---
-      if (config.yieldRotationEnabled) {
-        try {
-          const openPositions = positions.filter((p) => !p.closed);
-          const scored = scorePositions(openPositions);
-
-          let vaultBalance = 0n;
-          if (vaultClient) {
-            try {
-              vaultBalance = await vaultClient.getVaultBalance();
-            } catch {
-              // Vault may not be available
-            }
-          }
-
-          const allocationPlan = allocateCapital(vaultBalance, opportunities, maxPositionSize);
-
-          // Estimate gas cost for rotation check
-          const gasCostEstimate = config.gasToUsdtRate * 400_000n / BigInt(1e18);
-          const rotationSuggestions = checkRotations(
-            scored,
-            opportunities,
-            gasCostEstimate,
-            config.minYieldImprovementBps,
-          );
-
-          // Compute totals
-          let totalDeployed = 0n;
-          let weightedSum = 0;
-          for (const sp of scored) {
-            const cost = sp.position.costA + sp.position.costB;
-            totalDeployed += cost;
-            weightedSum += sp.annualizedYield * Number(cost);
-          }
-          const weightedAvgYield = totalDeployed > 0n ? weightedSum / Number(totalDeployed) : 0;
-
-          yieldStatus = {
-            scoredPositions: scored,
-            allocationPlan,
-            rotationSuggestions,
-            totalDeployed: totalDeployed.toString(),
-            weightedAvgYield,
-          };
-
-          if (rotationSuggestions.length > 0) {
-            log.info("Yield rotation suggestions", {
-              count: rotationSuggestions.length,
-              bestImprovement: rotationSuggestions[0].yieldImprovement,
-            });
-          }
-        } catch (err) {
-          log.error("Yield rotation error", { error: String(err) });
-        }
-      }
-
-      lastScan = Date.now();
-
-      // Persist state after successful scan
-      saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
-    })(), SCAN_TIMEOUT_MS, "scan");
+      const usdtBalance = await publicClient.readContract({
+        address: BSC_USDT,
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [account.address],
+      });
+      // BSC USDT is 18 decimals, dailyLossLimit is 6 decimals
+      return usdtBalance / BigInt(1e12);
     } catch (err) {
-      log.error("Scan error", { error: String(err) });
+      log.error("CLOB balance check failed — skipping execution this scan", { error: String(err) });
+      return -1n; // sentinel: will fail loss check
     }
-
-    // Schedule next scan
-    if (running) {
-      scanTimer = setTimeout(scan, scanIntervalMs);
-    }
-  } finally {
-    scanning = false;
+  } else if (vaultClient) {
+    try { return await vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
   }
+  return 0n;
 }
 
-function startAgent(): void {
-  if (running) return;
-  running = true;
-  log.info("Agent started");
-  scan();
-}
+// --- Create AgentInstance ---
+const agent = new AgentInstance({
+  userId: "self-hosted",
+  walletClient,
+  publicClient,
+  config: {
+    minSpreadBps: config.minSpreadBps,
+    maxPositionSize: config.maxPositionSize,
+    scanIntervalMs: config.scanIntervalMs,
+    executionMode: config.executionMode,
+    dailyLossLimit: config.dailyLossLimit,
+    dryRun: config.dryRun,
+    yieldRotationEnabled: config.yieldRotationEnabled,
+    gasToUsdtRate: config.gasToUsdtRate,
+    minYieldImprovementBps: config.minYieldImprovementBps,
+  },
+  quoteStore: providerQuoteStore,
+  executor,
+  clobClients: {
+    probable: probableClobClient,
+    predict: predictClobClient,
+    probableProxyAddress: config.probableProxyAddress,
+  },
+  vaultClient: vaultClient ?? undefined,
+  matchingPipeline,
+  collectClobNonces,
+  getBalanceForLossCheck,
+  clobInitPromise,
+  initialState: persisted ? {
+    tradesExecuted: persisted.tradesExecuted,
+    positions: persisted.positions,
+    clobPositions: persisted.clobPositions ?? [],
+    lastScan: persisted.lastScan,
+  } : undefined,
+  onStateChanged: (state) => {
+    saveState({
+      tradesExecuted: state.tradesExecuted,
+      positions: state.positions,
+      clobPositions: state.clobPositions,
+      lastScan: state.lastScan,
+      clobNonces: collectClobNonces(),
+    });
+  },
+});
 
-function stopAgent(): void {
-  running = false;
-  if (scanTimer) {
-    clearTimeout(scanTimer);
-    scanTimer = null;
-  }
-  log.info("Agent stopped");
-}
-
-function getStatus(): AgentStatus {
-  return {
-    running,
-    lastScan,
-    tradesExecuted,
-    uptime: Date.now() - startedAt,
-    config: {
-      minSpreadBps,
-      maxPositionSize: maxPositionSize.toString(),
-      scanIntervalMs,
-      executionMode: config.executionMode,
-    },
-  };
-}
-
-function getClobPositions(): ClobPosition[] {
-  return clobPositions;
-}
-
-function getOpportunities(): ArbitOpportunity[] {
-  return opportunities;
-}
-
-function getPositions(): Position[] {
-  return positions;
-}
-
-function getYieldStatus(): YieldStatus | null {
-  return yieldStatus;
-}
-
-function updateConfig(update: {
-  minSpreadBps?: number;
-  maxPositionSize?: string;
-  scanIntervalMs?: number;
-}): void {
-  if (update.minSpreadBps !== undefined) {
-    if (update.minSpreadBps < 1 || update.minSpreadBps > 10000) {
-      throw new Error('minSpreadBps must be between 1 and 10000');
-    }
-    minSpreadBps = update.minSpreadBps;
-    log.info("Updated minSpreadBps", { minSpreadBps });
-  }
-  if (update.maxPositionSize !== undefined) {
-    const size = BigInt(update.maxPositionSize);
-    if (size <= 0n) {
-      throw new Error('maxPositionSize must be positive');
-    }
-    maxPositionSize = size;
-    log.info("Updated maxPositionSize", { maxPositionSize: maxPositionSize.toString() });
-  }
-  if (update.scanIntervalMs !== undefined) {
-    if (update.scanIntervalMs < 1000 || update.scanIntervalMs > 300000) {
-      throw new Error('scanIntervalMs must be between 1000 and 300000');
-    }
-    scanIntervalMs = update.scanIntervalMs;
-    log.info("Updated scanIntervalMs", { scanIntervalMs });
-  }
-}
+// --- Graceful shutdown flag ---
+let shuttingDown = false;
 
 // --- HTTP server ---
 const app = createServer(
-  getStatus,
-  getOpportunities,
-  getPositions,
-  startAgent,
-  stopAgent,
-  updateConfig,
-  config.yieldRotationEnabled ? getYieldStatus : undefined,
-  getClobPositions,
+  () => agent.getStatus(),
+  () => agent.getOpportunities(),
+  () => agent.getPositions(),
+  () => agent.start(),
+  () => agent.stop(),
+  (update) => agent.updateConfig(update),
+  config.yieldRotationEnabled ? () => agent.getYieldStatus() : undefined,
+  () => agent.getClobPositions(),
 );
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
@@ -671,13 +423,13 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
     url: `http://localhost:${info.port}`,
     executionMode: config.executionMode,
     ...(config.vaultAddress ? { vault: config.vaultAddress } : {}),
-    minSpreadBps,
-    maxPositionSize: maxPositionSize.toString(),
-    scanIntervalMs,
+    minSpreadBps: config.minSpreadBps,
+    maxPositionSize: config.maxPositionSize.toString(),
+    scanIntervalMs: config.scanIntervalMs,
   });
 
   // Auto-start the agent
-  startAgent();
+  agent.start();
 });
 
 // --- Graceful shutdown ---
@@ -693,8 +445,7 @@ async function shutdown() {
   }, 30_000);
   forceExitTimer.unref(); // Don't keep process alive just for this timer
 
-  running = false;
-  if (scanTimer) clearTimeout(scanTimer);
+  agent.stop();
 
   // Cancel open CLOB orders
   if (config.executionMode === "clob") {
@@ -720,7 +471,13 @@ async function shutdown() {
   }
 
   // Flush state to disk
-  saveState({ tradesExecuted, positions, clobPositions, lastScan, clobNonces: collectClobNonces() });
+  saveState({
+    tradesExecuted: agent.getStatus().tradesExecuted,
+    positions: agent.getPositions(),
+    clobPositions: agent.getClobPositions(),
+    lastScan: agent.getStatus().lastScan,
+    clobNonces: collectClobNonces(),
+  });
   log.info("State flushed to disk");
 
   process.exit(0);

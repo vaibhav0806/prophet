@@ -253,6 +253,47 @@ describe("executeClob", () => {
     expect(placeCallA.size).toBeLessThanOrEqual(5);
     expect(placeCallA.size).toBeCloseTo(4.5, 1);
   });
+
+  it("skips polling when both legs report FILLED at placement", async () => {
+    vi.mocked(clientA.placeOrder).mockResolvedValue({ success: true, orderId: "a-filled", status: "MATCHED" });
+    vi.mocked(clientB.placeOrder).mockResolvedValue({ success: true, orderId: "b-filled", status: "MATCHED" });
+
+    const opp = createOpportunity();
+    const result = await executor.executeBest(opp, 100_000_000n);
+
+    expect(result).toBeDefined();
+    const pos = result as ClobPosition;
+    expect(pos.status).toBe("FILLED");
+    expect(pos.legA.filled).toBe(true);
+    expect(pos.legB.filled).toBe(true);
+
+    // getOrderStatus should never have been called (no polling)
+    expect(clientA.getOrderStatus).not.toHaveBeenCalled();
+    expect(clientB.getOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it("skips when Safe USDT balance is insufficient for Probable leg", async () => {
+    const proxyAddr = "0x3333333333333333333333333333333333333333" as `0x${string}`;
+    const executorWithProxy = new Executor(
+      undefined,
+      mockConfig,
+      mockPublicClient,
+      { probable: clientA, predict: clientB, probableProxyAddress: proxyAddr },
+      createMetaResolvers(),
+      { account: { address: "0x1111111111111111111111111111111111111111" } } as any,
+    );
+
+    // EOA USDT check returns enough
+    mockPublicClient.readContract
+      .mockResolvedValueOnce(1000n * 10n ** 18n) // EOA USDT balance — sufficient
+      .mockResolvedValueOnce(1n * 10n ** 18n);   // Safe USDT balance — only 1 USDT, insufficient
+
+    const result = await executorWithProxy.executeBest(createOpportunity(), 100_000_000n);
+    expect(result).toBeUndefined();
+    // placeOrder should not have been called
+    expect(clientA.placeOrder).not.toHaveBeenCalled();
+    expect(clientB.placeOrder).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
