@@ -467,6 +467,7 @@ export class Executor {
           statusA: statusA.status,
           statusB: statusB.status,
         });
+        await this.attemptUnwind(clientA, position.legA);
         return position;
       }
       if (statusB.status === "FILLED" && isFinal(statusA.status) && statusA.status !== "FILLED") {
@@ -477,6 +478,7 @@ export class Executor {
           statusA: statusA.status,
           statusB: statusB.status,
         });
+        await this.attemptUnwind(clientB, position.legB);
         return position;
       }
 
@@ -514,6 +516,7 @@ export class Executor {
       log.error("CRITICAL: Timeout — leg A filled, cancelled leg B — naked exposure, agent paused", {
         positionId: position.id,
       });
+      await this.attemptUnwind(clientA, position.legA);
       return position;
     }
 
@@ -526,6 +529,7 @@ export class Executor {
       log.error("CRITICAL: Timeout — leg B filled, cancelled leg A — naked exposure, agent paused", {
         positionId: position.id,
       });
+      await this.attemptUnwind(clientB, position.legB);
       return position;
     }
 
@@ -537,6 +541,50 @@ export class Executor {
     position.status = "FILLED";
     log.info("Both legs filled at timeout check", { positionId: position.id });
     return position;
+  }
+
+  private async attemptUnwind(client: ClobClient, leg: ClobLeg): Promise<void> {
+    const size = leg.filledSize > 0 ? leg.filledSize : leg.size;
+    const price = Math.round(leg.price * 0.95 * 100) / 100; // 5% discount, round to 2 decimals
+
+    log.info("Attempting to unwind filled leg", {
+      platform: leg.platform,
+      tokenId: leg.tokenId,
+      side: "SELL",
+      price,
+      size,
+    });
+
+    try {
+      const result = await client.placeOrder({
+        tokenId: leg.tokenId,
+        side: "SELL",
+        price,
+        size,
+      });
+
+      if (result.success) {
+        log.info("Unwind order placed", {
+          orderId: result.orderId,
+          platform: leg.platform,
+          tokenId: leg.tokenId,
+          price,
+          size,
+        });
+      } else {
+        log.warn("Unwind order rejected", {
+          platform: leg.platform,
+          tokenId: leg.tokenId,
+          error: result.error,
+        });
+      }
+    } catch (err) {
+      log.warn("Unwind failed", {
+        platform: leg.platform,
+        tokenId: leg.tokenId,
+        error: String(err),
+      });
+    }
   }
 
   private getClobClient(protocol: string): ClobClient | undefined {

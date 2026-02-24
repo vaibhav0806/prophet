@@ -250,7 +250,7 @@ export class ProbableClobClient implements ClobClient {
     this.apiSecret = data.secret as string
     this.apiPassphrase = data.passphrase as string
 
-    log.info("Probable: L2 auth initialized", { apiKey: this.apiKey })
+    log.info("Probable: L2 auth initialized", { apiKey: this.apiKey?.slice(0, 8) + "..." })
   }
 
   async placeOrder(params: PlaceOrderParams): Promise<OrderResult> {
@@ -357,6 +357,7 @@ export class ProbableClobClient implements ClobClient {
       }
 
       log.info("Probable order placed", { data })
+      this.nonce += 1n
 
       const rawId = data.orderId ?? data.orderID ?? data.id
       return {

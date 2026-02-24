@@ -378,6 +378,7 @@ export class PredictClobClient implements ClobClient {
         price: params.price,
         size: params.size,
       });
+      this.nonce += 1n;
 
       return res;
     } catch (err) {

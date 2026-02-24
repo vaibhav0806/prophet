@@ -44,9 +44,14 @@ function opportunityHash(opp: ArbitOpportunity): string {
 }
 
 function isRecentlyTraded(opp: ArbitOpportunity): boolean {
+  const now = Date.now();
+  // Clean stale entries
+  for (const [key, ts] of recentTrades) {
+    if (now - ts > DEDUP_WINDOW_MS) recentTrades.delete(key);
+  }
   const hash = opportunityHash(opp);
   const lastTrade = recentTrades.get(hash);
-  return !!(lastTrade && Date.now() - lastTrade < DEDUP_WINDOW_MS);
+  return !!(lastTrade && now - lastTrade < DEDUP_WINDOW_MS);
 }
 
 function recordTrade(opp: ArbitOpportunity): void {
