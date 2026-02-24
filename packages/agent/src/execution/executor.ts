@@ -56,6 +56,16 @@ const balanceOfAbi = [
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
+const erc20BalanceOfAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+] as const;
+
 const CTF_ADDRESSES: Record<string, `0x${string}`> = {
   probable: "0x364d05055614B506e2b9A287E4ac34167204cA83",
   predict: "0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc",
@@ -252,6 +262,30 @@ export class Executor {
     if (sizeUsdt < 1) {
       log.info("CLOB: position size too small after liquidity cap", { sizeUsdt });
       return;
+    }
+
+    // Pre-check USDT balance (EOA — covers Predict; Probable checks Safe-side via API)
+    const account = this.walletClient?.account;
+    if (account) {
+      try {
+        const usdtBalance = await this.publicClient.readContract({
+          address: BSC_USDT,
+          abi: erc20BalanceOfAbi,
+          functionName: "balanceOf",
+          args: [account.address],
+        });
+        // BSC USDT is 18 decimals; total cost ≈ sizeUsdt * 2 legs
+        const requiredWei = BigInt(Math.ceil(sizeUsdt * 2)) * 10n ** 18n;
+        if (usdtBalance < requiredWei) {
+          log.warn("CLOB: insufficient USDT balance, skipping", {
+            balance: Number(usdtBalance / 10n ** 18n),
+            required: sizeUsdt * 2,
+          });
+          return;
+        }
+      } catch (err) {
+        log.warn("CLOB: failed to check USDT balance, proceeding anyway", { error: String(err) });
+      }
     }
 
     // Determine legs
