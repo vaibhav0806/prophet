@@ -17,7 +17,7 @@ vi.mock("../retry.js", () => ({
 const ADAPTER = "0x0000000000000000000000000000000000000001" as `0x${string}`;
 const MKT_ID = "0x0000000000000000000000000000000000000000000000000000000000000001" as `0x${string}`;
 
-let fetchSpy: ReturnType<typeof vi.spyOn>;
+let fetchSpy: any;
 
 afterEach(() => {
   fetchSpy?.mockRestore();

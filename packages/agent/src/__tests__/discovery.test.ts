@@ -62,7 +62,7 @@ function predictMarket(id: number, title: string, opts?: {
 // Fetch mock
 // ---------------------------------------------------------------------------
 
-let fetchSpy: ReturnType<typeof vi.spyOn>;
+let fetchSpy: any;
 
 function setupFetch(opts: {
   probableEvents?: unknown[][];  // array of pages
