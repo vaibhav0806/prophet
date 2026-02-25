@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createNonce, verifySiweMessage, createSessionToken } from "../../auth/siwe.js";
+import { verifyPrivyToken } from "../../auth/privy.js";
 import type { Database } from "@prophit/shared/db";
 import { users } from "@prophit/shared/db";
 import { eq } from "drizzle-orm";
@@ -7,38 +7,30 @@ import { eq } from "drizzle-orm";
 export function createAuthRoutes(db: Database): Hono {
   const app = new Hono();
 
-  // POST /api/auth/nonce - Get a SIWE nonce
-  app.post("/nonce", (c) => {
-    const nonce = createNonce();
-    return c.json({ nonce });
-  });
-
-  // POST /api/auth/verify - Verify SIWE signature and create session
-  app.post("/verify", async (c) => {
-    const body = await c.req.json<{ message: string; signature: string }>();
-
-    if (!body.message || !body.signature) {
-      return c.json({ error: "Missing message or signature" }, 400);
+  // GET /api/auth/me - Verify Privy token and find-or-create user
+  app.get("/me", async (c) => {
+    const authHeader = c.req.header("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return c.json({ error: "Missing or invalid Authorization header" }, 401);
     }
 
+    const token = authHeader.slice(7);
     try {
-      const { address } = await verifySiweMessage(body.message, body.signature);
-      const normalizedAddress = address.toLowerCase();
+      const { userId, walletAddress } = await verifyPrivyToken(token);
 
       // Find or create user
       let [user] = await db
         .select()
         .from(users)
-        .where(eq(users.walletAddress, normalizedAddress))
+        .where(eq(users.id, userId))
         .limit(1);
 
       if (!user) {
-        const id = crypto.randomUUID();
         [user] = await db
           .insert(users)
           .values({
-            id,
-            walletAddress: normalizedAddress,
+            id: userId,
+            walletAddress,
           })
           .returning();
       } else {
@@ -49,14 +41,13 @@ export function createAuthRoutes(db: Database): Hono {
           .where(eq(users.id, user.id));
       }
 
-      const token = await createSessionToken(user.id, normalizedAddress);
-      return c.json({ token, userId: user.id, address: normalizedAddress });
+      return c.json({ userId: user.id, address: user.walletAddress });
     } catch (err) {
       return c.json({ error: "Verification failed: " + String(err) }, 401);
     }
   });
 
-  // POST /api/auth/logout - No-op for JWT (client discards token)
+  // POST /api/auth/logout - No-op (client discards token)
   app.post("/logout", (c) => {
     return c.json({ ok: true });
   });

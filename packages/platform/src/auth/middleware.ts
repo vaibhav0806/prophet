@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono";
-import { verifySessionToken } from "./siwe.js";
+import { verifyPrivyToken } from "./privy.js";
 
 export interface AuthContext {
   userId: string;
@@ -14,7 +14,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
 
   const token = authHeader.slice(7);
   try {
-    const session = await verifySessionToken(token);
+    const session = await verifyPrivyToken(token);
     c.set("userId", session.userId);
     c.set("walletAddress", session.walletAddress);
     await next();
