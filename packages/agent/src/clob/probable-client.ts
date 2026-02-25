@@ -292,6 +292,11 @@ export class ProbableClobClient implements ClobClient {
     const account = this.walletClient.account
     if (!account) return { success: false, error: "WalletClient has no account" }
 
+    if (this.dryRun) {
+      log.info("DRY RUN: skipping order build/sign", { tokenId: params.tokenId, side: params.side, price: params.price, size: params.size })
+      return { success: true, orderId: "dry-run", status: "DRY_RUN" }
+    }
+
     const { tokenId, side, price, size } = params
 
     try {
@@ -724,8 +729,7 @@ export class ProbableClobClient implements ClobClient {
 
     const deficit = threshold18 - safeBalance
 
-    // Check EOA has enough USDT — reserve half the threshold for EOA's own Predict leg
-    const eoaReserve = threshold18 / 2n
+    // Check EOA has enough USDT — reserve half the TOTAL for EOA's own Predict leg
     const eoaBalance = await publicClient.readContract({
       address: BSC_USDT,
       abi: ERC20_BALANCE_OF_ABI,
@@ -733,6 +737,9 @@ export class ProbableClobClient implements ClobClient {
       args: [account.address],
     })
 
+    // Split evenly: each wallet (EOA + Safe) gets half the total
+    const totalBalance = eoaBalance + safeBalance
+    const eoaReserve = totalBalance / 2n
     const transferable = eoaBalance > eoaReserve ? eoaBalance - eoaReserve : 0n
     if (transferable === 0n) {
       log.warn("EOA USDT insufficient to fund Safe (need to reserve for Predict leg)", {

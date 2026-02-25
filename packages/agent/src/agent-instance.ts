@@ -355,9 +355,24 @@ export class AgentInstance {
         const detected = detectArbitrage(matchedQuotes);
         this.opportunities = detected;
 
+        log.info("[DEBUG] Scan results", {
+          totalQuotes: matchedQuotes.length,
+          detected: detected.length,
+          minSpreadBps: this.minSpreadBps,
+          maxPositionSize: this.maxPositionSize.toString(),
+          executionMode: this.executionMode,
+          dryRun: this.executor?.["config"]?.dryRun,
+        });
+
         // Filter by minSpreadBps
         const actionable = detected.filter((o) => o.spreadBps >= this.minSpreadBps);
         const fresh = actionable.filter((o) => !this.isRecentlyTraded(o));
+
+        log.info("[DEBUG] Filtering", {
+          actionable: actionable.length,
+          fresh: fresh.length,
+          recentlyTradedCount: actionable.length - fresh.length,
+        });
 
         // Daily loss limit check
         let balanceForLossCheck = 0n;
@@ -372,6 +387,14 @@ export class AgentInstance {
           try { balanceForLossCheck = await this.vaultClient.getVaultBalance(); } catch { /* vault may not be available */ }
         }
         const withinLossLimit = balanceForLossCheck >= 0n && this.checkDailyLoss(balanceForLossCheck);
+
+        log.info("[DEBUG] Loss limit check", {
+          balanceForLossCheck: balanceForLossCheck.toString(),
+          withinLossLimit,
+          dailyStartBalance: this.dailyStartBalance?.toString(),
+          dailyLossLimit: this.dailyLossLimit.toString(),
+        });
+
         if (!withinLossLimit) {
           log.warn("Daily loss limit reached, skipping execution", {
             startBalance: this.dailyStartBalance?.toString(),
@@ -409,20 +432,43 @@ export class AgentInstance {
           }
 
           try {
+            log.info("[DEBUG] Calling executor.executeBest", {
+              marketId: fresh[0].marketId,
+              spreadBps: fresh[0].spreadBps,
+              protocolA: fresh[0].protocolA,
+              protocolB: fresh[0].protocolB,
+              maxSize: effectiveMaxSize.toString(),
+            });
             const result = await this.executor.executeBest(fresh[0], effectiveMaxSize);
-            this.tradesExecuted++;
-            this.recordTrade(fresh[0]);
-            // Track CLOB positions
+            log.info("[DEBUG] executor.executeBest returned", {
+              hasResult: !!result,
+              resultId: result?.id,
+              resultStatus: result?.status,
+            });
+            // Track CLOB positions — only count as trade if BOTH legs confirmed filled
             if (result && this.executionMode === "clob") {
               this.clobPositions.push(result);
-              if (this.onTradeExecuted) {
-                this.onTradeExecuted(result);
+              // Always record as recently traded to prevent retrying failed markets
+              this.recordTrade(fresh[0]);
+
+              if (result.status === "FILLED" && result.legA.filled && result.legB.filled) {
+                this.tradesExecuted++;
+                if (this.onTradeExecuted) {
+                  this.onTradeExecuted(result);
+                }
+              } else {
+                log.warn("Trade not fully filled — not counting as executed", {
+                  positionId: result.id,
+                  status: result.status,
+                  legAFilled: result.legA.filled,
+                  legBFilled: result.legB.filled,
+                });
               }
             }
             // Persist immediately after trade
             this.persistState();
-          } catch {
-            // Already logged in executor
+          } catch (execErr) {
+            log.error("[DEBUG] executor.executeBest threw", { error: String(execErr) });
           }
         } else if (fresh.length === 0) {
           log.info("No opportunities above threshold", { minSpreadBps: this.minSpreadBps });

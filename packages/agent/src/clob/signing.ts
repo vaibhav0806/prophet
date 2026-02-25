@@ -34,6 +34,7 @@ export function buildOrder(params: {
   scale?: number; // amount scaling factor (default 1e6 for Polymarket/Probable, 1e18 for Predict)
   signatureType?: number; // default SIG_TYPE_EOA (0), use SIG_TYPE_POLY_PROXY (1) for proxy wallets
   quantize?: boolean; // round amounts to ME precision (Probable: qty step 0.01, price tick 0.001)
+  slippageBps?: number; // bake slippage into on-chain amounts (BUY: inflate makerAmount, SELL: deflate takerAmount)
 }): ClobOrder {
   const { maker, signer, tokenId, side, price, size, feeRateBps, expirationSec, nonce } = params;
 
@@ -57,6 +58,23 @@ export function buildOrder(params: {
   }
 
   const isBuy = side === "BUY";
+  const slipBps = BigInt(params.slippageBps ?? 0);
+
+  // For MARKET orders, bake slippage into the on-chain amounts so the matching
+  // engine has room to fill at the effective price (after fees/rounding).
+  // BUY:  inflate makerAmount (pay up to X% more USDT), cap at takerAmount ($1/share max)
+  // SELL: deflate takerAmount (accept up to X% less USDT), floor at 0
+  let makerAmount = isBuy ? sizeRaw : sharesRaw;
+  let takerAmount = isBuy ? sharesRaw : sizeRaw;
+
+  if (slipBps > 0n) {
+    if (isBuy) {
+      const inflated = makerAmount * (10_000n + slipBps) / 10_000n;
+      makerAmount = inflated < takerAmount ? inflated : takerAmount; // cap at $1/share
+    } else {
+      takerAmount = takerAmount * (10_000n - slipBps) / 10_000n;
+    }
+  }
 
   return {
     salt: BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
@@ -64,8 +82,8 @@ export function buildOrder(params: {
     signer,
     taker: ZERO_ADDRESS,
     tokenId: BigInt(tokenId),
-    makerAmount: isBuy ? sizeRaw : sharesRaw,
-    takerAmount: isBuy ? sharesRaw : sizeRaw,
+    makerAmount,
+    takerAmount,
     expiration: BigInt(Math.floor(Date.now() / 1000) + expirationSec),
     nonce,
     feeRateBps: BigInt(feeRateBps),

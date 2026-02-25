@@ -1,5 +1,5 @@
 import type { PublicClient, WalletClient } from "viem";
-import { hashTypedData } from "viem";
+import { getAddress, hashTypedData } from "viem";
 import type {
   ClobClient,
   PlaceOrderParams,
@@ -93,11 +93,15 @@ const PREDICT_CTF_YIELD = "0x9400F8Ad57e9e0F352345935d6D3175975eb1d9F" as `0x${s
 const PREDICT_CTF_NEGRISK = "0x22DA1810B194ca018378464a58f6Ac2B10C9d244" as `0x${string}`; // same as standard
 const PREDICT_CTF_YIELD_NEGRISK = "0xF64b0b318AAf83BD9071110af24D24445719A07F" as `0x${string}`;
 
-// Each CTF contract needs approval for its corresponding exchange(s)
+// NegRisk adapter contracts — need ERC-1155 approval on CTF for SELL orders on negRisk markets
+const PREDICT_NEGRISK_ADAPTER = "0xc3Cf7c252f65E0d8D88537dF96569AE94a7F1A6E" as `0x${string}`;
+const PREDICT_YIELD_NEGRISK_ADAPTER = "0x41dCe1A4B8FB5e6327701750aF6231B7CD0B2A40" as `0x${string}`;
+
+// Each CTF contract needs approval for its corresponding exchange(s) and adapters
 const CTF_EXCHANGE_PAIRS: Array<{ ctf: `0x${string}`; exchanges: `0x${string}`[] }> = [
-  { ctf: PREDICT_CTF_STANDARD, exchanges: [PREDICT_EXCHANGE_STANDARD, PREDICT_EXCHANGE_NEGRISK] },
+  { ctf: PREDICT_CTF_STANDARD, exchanges: [PREDICT_EXCHANGE_STANDARD, PREDICT_EXCHANGE_NEGRISK, PREDICT_NEGRISK_ADAPTER] },
   { ctf: PREDICT_CTF_YIELD, exchanges: [PREDICT_EXCHANGE_YIELD] },
-  { ctf: PREDICT_CTF_YIELD_NEGRISK, exchanges: [PREDICT_EXCHANGE_YIELD_NEGRISK] },
+  { ctf: PREDICT_CTF_YIELD_NEGRISK, exchanges: [PREDICT_EXCHANGE_YIELD_NEGRISK, PREDICT_YIELD_NEGRISK_ADAPTER] },
 ];
 
 const MIN_FEE_RATE_BPS = 200;
@@ -167,14 +171,14 @@ export class PredictClobClient implements ClobClient {
       message,
     });
 
-    // Step 3: POST login
+    // Step 3: POST login — use checksummed address (Predict API is case-sensitive)
     const loginRes = await fetch(`${this.apiBase}/v1/auth`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": this.apiKey,
       },
-      body: JSON.stringify({ signer: account.address, message, signature }),
+      body: JSON.stringify({ signer: getAddress(account.address), message, signature }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!loginRes.ok) {
@@ -287,6 +291,16 @@ export class PredictClobClient implements ClobClient {
     const account = this.walletClient.account;
     if (!account) throw new Error("WalletClient has no account");
 
+    if (this.dryRun) {
+      log.info("Predict placeOrder dry-run (early exit)", {
+        tokenId: params.tokenId,
+        side: params.side,
+        price: params.price,
+        size: params.size,
+      });
+      return { success: true, orderId: "dry-run", status: "dry-run" };
+    }
+
     try {
       const jwt = await this.ensureAuth();
 
@@ -308,6 +322,7 @@ export class PredictClobClient implements ClobClient {
         expirationSec: this.expirationSec,
         nonce: this.nonce,
         scale: PREDICT_SCALE,
+        slippageBps: 200, // bake 2% slippage into on-chain makerAmount/takerAmount for MARKET FOK
       });
 
       const { signature } = await signOrder(
@@ -354,12 +369,13 @@ export class PredictClobClient implements ClobClient {
       // - side is numeric (0 = BUY, 1 = SELL), not string
       // - signature and hash go inside the order object
       // - wrapped in { data: { order, pricePerShare, strategy } }
+      // Checksum addresses — Predict API does case-sensitive comparison against JWT signer
       const payload = {
         data: {
           order: {
             salt: order.salt.toString(),
-            maker: order.maker,
-            signer: order.signer,
+            maker: getAddress(order.maker),
+            signer: getAddress(order.signer),
             taker: order.taker,
             tokenId: order.tokenId.toString(),
             makerAmount: order.makerAmount.toString(),
@@ -374,6 +390,8 @@ export class PredictClobClient implements ClobClient {
           },
           pricePerShare,
           strategy: "MARKET",
+          isFillOrKill: true,
+          slippageBps: "200",
         },
       };
 
@@ -526,7 +544,7 @@ export class PredictClobClient implements ClobClient {
       if (!account) throw new Error("WalletClient has no account");
 
       const res = await fetch(
-        `${this.apiBase}/v1/orders?address=${account.address}&status=OPEN`,
+        `${this.apiBase}/v1/orders?address=${getAddress(account.address)}&status=OPEN`,
         {
           headers: {
             Authorization: `Bearer ${jwt}`,
@@ -596,11 +614,14 @@ export class PredictClobClient implements ClobClient {
       }
 
       if (!res.ok) {
-        // MARKET orders fill instantly and are removed from the API.
-        // A 404 after a successful POST means the order was processed → treat as FILLED.
+        // 404 means the order no longer exists. This can mean:
+        // (a) MARKET order filled and was removed, or
+        // (b) MARKET order had no liquidity and was cancelled/removed.
+        // We CANNOT distinguish these without a balance check.
+        // Return CANCELLED — the executor will verify fills via balance check.
         if (res.status === 404) {
-          log.info("Predict getOrderStatus 404 — MARKET order processed (treating as FILLED)", { orderId });
-          return { orderId, status: "FILLED", filledSize: 0, remainingSize: 0 };
+          log.warn("Predict getOrderStatus 404 — order gone (treating as CANCELLED, needs balance verification)", { orderId });
+          return { orderId, status: "CANCELLED", filledSize: 0, remainingSize: 0 };
         }
         log.warn("Predict getOrderStatus failed", { orderId, status: res.status });
         return { orderId, status: "UNKNOWN", filledSize: 0, remainingSize: 0 };

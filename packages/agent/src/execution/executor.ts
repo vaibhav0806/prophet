@@ -92,6 +92,8 @@ export class Executor {
   private metaResolvers: Map<string, MarketMetaResolver>;
   private walletClient: WalletClient | null;
   private paused = false;
+  private consecutiveVerificationFailures = 0;
+  private static readonly MAX_VERIFICATION_FAILURES = 2;
 
   constructor(
     vaultClient: VaultClient | undefined,
@@ -300,11 +302,22 @@ export class Executor {
         const eoaLegs = this.clobClients.probableProxyAddress ? 1 : 2;
         const requiredWei = BigInt(Math.round(sizeUsdt * eoaLegs * 1e6)) * 10n ** 12n;
         if (usdtBalance < requiredWei) {
-          log.warn("CLOB: insufficient EOA USDT balance, skipping", {
-            balance: Number(usdtBalance) / 1e18,
-            required: sizeUsdt * eoaLegs,
-          });
-          return;
+          // Cap size to EOA balance instead of skipping entirely
+          // Floor to 8dp to prevent Math.round(x*1e8) in signing.ts from rounding past actual balance
+          const eoaUsdt = Math.floor(Number(usdtBalance) / 1e18 * 1e8) / 1e8 / eoaLegs;
+          if (eoaUsdt >= 1) {
+            log.info("CLOB: capping trade size to EOA balance", {
+              original: sizeUsdt,
+              capped: eoaUsdt,
+            });
+            sizeUsdt = eoaUsdt;
+          } else {
+            log.warn("CLOB: insufficient EOA USDT balance, skipping", {
+              balance: Number(usdtBalance) / 1e18,
+              required: sizeUsdt * eoaLegs,
+            });
+            return;
+          }
         }
       } catch (err) {
         log.warn("CLOB: failed to check USDT balance, proceeding anyway", { error: String(err) });
@@ -324,12 +337,24 @@ export class Executor {
         });
         const requiredWei = BigInt(Math.round(sizeUsdt * 1e6)) * 10n ** 12n;
         if (safeBalance < requiredWei) {
-          log.warn("CLOB: Safe USDT balance insufficient for Probable leg, skipping", {
-            safe: proxyAddr,
-            balance: Number(safeBalance) / 1e18,
-            required: sizeUsdt,
-          });
-          return;
+          // Cap size to Safe balance instead of skipping entirely
+          // Floor to 8dp to prevent Math.round(x*1e8) in signing.ts from rounding past actual balance
+          const safeUsdt = Math.floor(Number(safeBalance) / 1e18 * 1e8) / 1e8;
+          if (safeUsdt >= 1) {
+            log.info("CLOB: capping trade size to Safe balance for Probable leg", {
+              safe: proxyAddr,
+              original: sizeUsdt,
+              capped: safeUsdt,
+            });
+            sizeUsdt = safeUsdt;
+          } else {
+            log.warn("CLOB: Safe USDT balance insufficient for Probable leg, skipping", {
+              safe: proxyAddr,
+              balance: safeUsdt,
+              required: sizeUsdt,
+            });
+            return;
+          }
         }
       } catch (err) {
         log.warn("CLOB: failed to check Safe USDT balance, proceeding anyway", { error: String(err) });
@@ -367,64 +392,212 @@ export class Executor {
       legB: legBParams,
     });
 
-    // Place both legs near-simultaneously
-    const [resultA, resultB] = await Promise.all([
-      clientA.placeOrder(legAParams),
-      clientB.placeOrder(legBParams),
-    ]);
+    // Snapshot balances before order placement for post-fill verification
+    let preTradeEoaBalance = 0n;
+    let preTradeSafeBalance = 0n;
+    try {
+      if (account) {
+        preTradeEoaBalance = await this.publicClient.readContract({
+          address: BSC_USDT, abi: erc20BalanceOfAbi, functionName: "balanceOf",
+          args: [account.address],
+        });
+      }
+      if (proxyAddr) {
+        preTradeSafeBalance = await this.publicClient.readContract({
+          address: BSC_USDT, abi: erc20BalanceOfAbi, functionName: "balanceOf",
+          args: [proxyAddr],
+        });
+      }
+    } catch {
+      // Non-critical — verification will be skipped
+    }
+
+    // ---------------------------------------------------------------------------
+    // Sequential execution: Predict first, then Probable only if Predict fills.
+    // Predict FOK orders frequently don't fill (low liquidity / stale quotes).
+    // Placing both simultaneously caused systematic losses: Probable fills,
+    // Predict doesn't, unwind sells Probable at a loss.
+    // ---------------------------------------------------------------------------
+
+    const predictIsA = opportunity.protocolA.toLowerCase() === "predict";
+    const predictClient = predictIsA ? clientA : clientB;
+    const probableClient = predictIsA ? clientB : clientA;
+    const predictParams = predictIsA ? legAParams : legBParams;
+    const probableParams = predictIsA ? legBParams : legAParams;
+    const predictMeta = predictIsA ? metaA : metaB;
+    const probableMeta = predictIsA ? metaB : metaA;
 
     const isFilledStatus = (s?: string) => {
       const u = s?.toUpperCase();
-      return u === "FILLED" || u === "MATCHED";
+      return u === "FILLED" || u === "MATCHED" || u === "DRY_RUN" || u === "DRY-RUN";
     };
+
+    // Minimum threshold: 10% of expected leg cost (catches partial fills too)
+    const legMinSpend = BigInt(Math.round(sizeUsdt * 0.1 * 1e6)) * 10n ** 12n;
+
+    // --- Step 1: Place Predict order (the unreliable leg) ---
+    const predictResult = await predictClient.placeOrder(predictParams);
+
+    if (!predictResult.success) {
+      log.error("Predict order failed, skipping Probable leg", { error: predictResult.error });
+      return;
+    }
+
+    // In dry-run mode, skip balance verification — place both legs immediately
+    if (this.config.dryRun) {
+      const probableResult = await probableClient.placeOrder(probableParams);
+      if (!probableResult.success) {
+        log.error("DRY RUN: Probable order failed", { error: probableResult.error });
+        return;
+      }
+      const position: ClobPosition = {
+        id: `clob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        marketId: opportunity.marketId,
+        status: "FILLED",
+        legA: {
+          platform: opportunity.protocolA,
+          orderId: (predictIsA ? predictResult.orderId : probableResult.orderId) ?? "",
+          tokenId: legAParams.tokenId,
+          side: "BUY", price: priceA, size: sizeUsdt, filled: true, filledSize: sizeUsdt,
+          ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
+        },
+        legB: {
+          platform: opportunity.protocolB,
+          orderId: (predictIsA ? probableResult.orderId : predictResult.orderId) ?? "",
+          tokenId: legBParams.tokenId,
+          side: "BUY", price: priceB, size: sizeUsdt, filled: true, filledSize: sizeUsdt,
+          ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
+        },
+        totalCost: sizeUsdt * 2,
+        expectedPayout: sizeUsdt * 2 * (1 + opportunity.spreadBps / 10000),
+        spreadBps: opportunity.spreadBps,
+        openedAt: Date.now(),
+      };
+      log.info("DRY RUN: position marked FILLED (no real orders placed)");
+      return position;
+    }
+
+    log.info("Predict order placed, waiting for fill", {
+      orderId: predictResult.orderId,
+      price: predictParams.price,
+      size: predictParams.size,
+    });
+
+    // --- Step 2: Wait and verify Predict fill via balance ---
+    await new Promise((r) => setTimeout(r, 3000));
+
+    let predictFilled = false;
+    if (preTradeEoaBalance > 0n && account) {
+      try {
+        const postEoa = await this.publicClient.readContract({
+          address: BSC_USDT, abi: erc20BalanceOfAbi, functionName: "balanceOf",
+          args: [account.address],
+        });
+        const eoaSpent = preTradeEoaBalance > postEoa ? preTradeEoaBalance - postEoa : 0n;
+        predictFilled = eoaSpent > legMinSpend;
+        log.info("Predict fill check", {
+          eoaSpent: Number(eoaSpent) / 1e18,
+          predictFilled,
+          threshold: Number(legMinSpend) / 1e18,
+        });
+      } catch (err) {
+        log.warn("Failed to check Predict fill via balance", { error: String(err) });
+      }
+    }
+
+    if (!predictFilled) {
+      log.info("Predict order did not fill (FOK cancelled), skipping Probable leg", {
+        orderId: predictResult.orderId,
+        price: predictParams.price,
+      });
+
+      // Build minimal position for tracking
+      const position: ClobPosition = {
+        id: `clob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        marketId: opportunity.marketId,
+        status: "EXPIRED",
+        legA: {
+          platform: opportunity.protocolA,
+          orderId: predictIsA ? (predictResult.orderId ?? "") : "",
+          tokenId: legAParams.tokenId,
+          side: "BUY", price: priceA, size: sizeUsdt, filled: false, filledSize: 0,
+          ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
+        },
+        legB: {
+          platform: opportunity.protocolB,
+          orderId: predictIsA ? "" : (predictResult.orderId ?? ""),
+          tokenId: legBParams.tokenId,
+          side: "BUY", price: priceB, size: sizeUsdt, filled: false, filledSize: 0,
+          ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
+        },
+        totalCost: 0,
+        expectedPayout: 0,
+        spreadBps: opportunity.spreadBps,
+        openedAt: Date.now(),
+      };
+      return position;
+    }
+
+    // --- Step 3: Predict filled! Now place Probable leg ---
+    log.info("Predict leg FILLED — placing Probable leg", {
+      predictOrderId: predictResult.orderId,
+    });
+
+    const probableResult = await probableClient.placeOrder(probableParams);
 
     const legA: ClobLeg = {
       platform: opportunity.protocolA,
-      orderId: resultA.orderId ?? "",
+      orderId: (predictIsA ? predictResult.orderId : probableResult.orderId) ?? "",
       tokenId: legAParams.tokenId,
       side: "BUY",
       price: priceA,
       size: sizeUsdt,
-      filled: isFilledStatus(resultA.status),
-      filledSize: isFilledStatus(resultA.status) ? sizeUsdt : 0,
+      filled: predictIsA ? true : isFilledStatus(probableResult.status),
+      filledSize: predictIsA ? sizeUsdt : (isFilledStatus(probableResult.status) ? sizeUsdt : 0),
       ...(metaA.predictMarketId ? { marketId: metaA.predictMarketId } : {}),
     };
 
     const legB: ClobLeg = {
       platform: opportunity.protocolB,
-      orderId: resultB.orderId ?? "",
+      orderId: (predictIsA ? probableResult.orderId : predictResult.orderId) ?? "",
       tokenId: legBParams.tokenId,
       side: "BUY",
       price: priceB,
       size: sizeUsdt,
-      filled: isFilledStatus(resultB.status),
-      filledSize: isFilledStatus(resultB.status) ? sizeUsdt : 0,
+      filled: predictIsA ? isFilledStatus(probableResult.status) : true,
+      filledSize: predictIsA ? (isFilledStatus(probableResult.status) ? sizeUsdt : 0) : sizeUsdt,
       ...(metaB.predictMarketId ? { marketId: metaB.predictMarketId } : {}),
     };
 
-    if (!resultA.success && !resultB.success) {
-      log.error("Both CLOB legs failed", { errorA: resultA.error, errorB: resultB.error });
-      return;
-    }
+    if (!probableResult.success) {
+      log.error("Probable order failed after Predict fill — naked Predict exposure!", {
+        error: probableResult.error,
+        predictOrderId: predictResult.orderId,
+      });
 
-    if (!resultA.success) {
-      log.error("CLOB leg A failed, cancelling leg B", { error: resultA.error });
-      if (resultB.orderId) await clientB.cancelOrder(resultB.orderId, legBParams.tokenId);
-      return;
-    }
+      const position: ClobPosition = {
+        id: `clob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        marketId: opportunity.marketId,
+        status: "PARTIAL",
+        legA, legB,
+        totalCost: sizeUsdt,
+        expectedPayout: sizeUsdt * 2 * (1 + opportunity.spreadBps / 10000),
+        spreadBps: opportunity.spreadBps,
+        openedAt: Date.now(),
+      };
 
-    if (!resultB.success) {
-      log.error("CLOB leg B failed, cancelling leg A", { error: resultB.error });
-      if (resultA.orderId) await clientA.cancelOrder(resultA.orderId, legAParams.tokenId);
-      return;
+      // Pause and attempt unwind of Predict leg
+      this.paused = true;
+      const predictLeg = predictIsA ? position.legA : position.legB;
+      await this.attemptUnwind(predictClient, predictLeg);
+      return position;
     }
 
     const position: ClobPosition = {
       id: `clob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       marketId: opportunity.marketId,
       status: "OPEN",
-      legA,
-      legB,
+      legA, legB,
       totalCost: sizeUsdt * 2,
       expectedPayout: sizeUsdt * 2 * (1 + opportunity.spreadBps / 10000),
       spreadBps: opportunity.spreadBps,
@@ -433,28 +606,63 @@ export class Executor {
 
     log.info("CLOB position opened", {
       id: position.id,
-      orderIdA: resultA.orderId,
-      orderIdB: resultB.orderId,
+      predictOrderId: predictResult.orderId,
+      probableOrderId: probableResult.orderId,
       dryRun: this.config.dryRun,
     });
 
-    // In dry-run mode, skip polling and mark as filled immediately
-    if (this.config.dryRun) {
-      position.status = "FILLED";
-      position.legA.filled = true;
-      position.legB.filled = true;
-      log.info("DRY RUN: position marked FILLED (no real orders placed)");
-      return position;
+    // --- Step 4: Verify Probable fill via balance ---
+    await new Promise((r) => setTimeout(r, 3000));
+
+    let probableFilled = false;
+    if (preTradeSafeBalance > 0n && proxyAddr) {
+      try {
+        const postSafe = await this.publicClient.readContract({
+          address: BSC_USDT, abi: erc20BalanceOfAbi, functionName: "balanceOf",
+          args: [proxyAddr],
+        });
+        const safeSpent = preTradeSafeBalance > postSafe ? preTradeSafeBalance - postSafe : 0n;
+        probableFilled = safeSpent > legMinSpend;
+        log.info("Probable fill check", {
+          safeSpent: Number(safeSpent) / 1e18,
+          probableFilled,
+          threshold: Number(legMinSpend) / 1e18,
+        });
+      } catch (err) {
+        log.warn("Failed to check Probable fill via balance, assuming filled (FOK)", { error: String(err) });
+        probableFilled = true; // FOK orders: if placed successfully, likely filled
+      }
+    } else {
+      probableFilled = true; // No Safe pre-balance → can't verify, assume filled
     }
 
-    // Fast-path: if both legs already reported FILLED/MATCHED (e.g. FOK orders), skip polling
-    if (position.legA.filled && position.legB.filled) {
-      position.status = "FILLED";
-      log.info("Both legs reported FILLED at placement — skipping poll", { positionId: position.id });
-      return position;
+    // Update leg status
+    if (predictIsA) {
+      position.legA.filled = true; // Already confirmed
+      position.legB.filled = probableFilled;
+    } else {
+      position.legA.filled = probableFilled;
+      position.legB.filled = true; // Already confirmed
     }
 
-    return this.pollForFills(position);
+    if (probableFilled) {
+      position.status = "FILLED";
+      this.consecutiveVerificationFailures = 0;
+      log.info("Both legs confirmed filled", { positionId: position.id });
+    } else {
+      // Predict filled but Probable didn't — rare with FOK
+      position.status = "PARTIAL";
+      this.paused = true;
+      log.error("PARTIAL FILL: Predict filled but Probable FOK did not — executor paused", {
+        positionId: position.id,
+      });
+
+      // Attempt to unwind Predict leg
+      const predictLeg = predictIsA ? position.legA : position.legB;
+      await this.attemptUnwind(predictClient, predictLeg);
+    }
+
+    return position;
   }
 
   async pollForFills(position: ClobPosition): Promise<ClobPosition> {
