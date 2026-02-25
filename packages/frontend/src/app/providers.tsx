@@ -1,24 +1,11 @@
 "use client";
 
-import { WagmiProvider, createConfig, http } from "wagmi";
-import { bsc } from "wagmi/chains";
-import { injected, walletConnect } from "wagmi/connectors";
+import { PrivyProvider } from "@privy-io/react-auth";
+import { bsc } from "viem/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
-
-const config = createConfig({
-  chains: [bsc],
-  connectors: [
-    injected(),
-    ...(projectId ? [walletConnect({ projectId })] : []),
-  ],
-  transports: {
-    [bsc.id]: http(),
-  },
-  ssr: false,
-});
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || "cmm0zisg200l80bl8biqwbrwx";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
@@ -31,10 +18,26 @@ export function Providers({ children }: { children: ReactNode }) {
   }));
 
   return (
-    <WagmiProvider config={config}>
+    <PrivyProvider
+      appId={PRIVY_APP_ID}
+      config={{
+        appearance: {
+          theme: "dark",
+          accentColor: "#F0B90B",
+        },
+        loginMethods: ["email", "google", "apple", "twitter"],
+        embeddedWallets: {
+          ethereum: {
+            createOnLogin: "users-without-wallets",
+          },
+        },
+        supportedChains: [bsc],
+        defaultChain: bsc,
+      }}
+    >
       <QueryClientProvider client={queryClient}>
         {children}
       </QueryClientProvider>
-    </WagmiProvider>
+    </PrivyProvider>
   );
 }

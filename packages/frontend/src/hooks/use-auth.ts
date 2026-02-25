@@ -1,53 +1,55 @@
 "use client";
 
-import { useAccount, useSignMessage } from "wagmi";
-import { useRequestNonce, useVerifySignature, setSession } from "./use-platform-api";
-import { SiweMessage } from "siwe";
+import { useEffect, useRef } from "react";
+import { usePrivy, useWallets, useSessionSigners, getAccessToken } from "@privy-io/react-auth";
+import { setAccessTokenGetter, setAuthenticated } from "./use-platform-api";
+
+const KEY_QUORUM_ID = "p9d4d3lh4zdrubx15wyikodf";
+const POLICY_ID = "l9i6smht7zmc9zn0x38izidi";
 
 export function useAuth() {
-  const { address, isConnected } = useAccount();
-  const { signMessageAsync } = useSignMessage();
-  const requestNonce = useRequestNonce();
-  const verifySignature = useVerifySignature();
+  const { login, logout, authenticated, user, ready } = usePrivy();
+  const { wallets } = useWallets();
+  const { addSessionSigners } = useSessionSigners();
+  const delegatedRef = useRef<string | null>(null);
 
-  const signIn = async (): Promise<{ userId: string; address: string }> => {
-    if (!address) throw new Error("Wallet not connected");
+  const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
+  const address = embeddedWallet?.address || user?.wallet?.address;
 
-    // 1. Get nonce
-    const { nonce } = await requestNonce.mutateAsync();
+  // Keep platform API layer in sync with Privy auth state
+  useEffect(() => {
+    setAuthenticated(authenticated);
+    if (authenticated) {
+      setAccessTokenGetter(() => getAccessToken());
+    } else {
+      setAccessTokenGetter(null);
+    }
+  }, [authenticated]);
 
-    // 2. Create SIWE message
-    const message = new SiweMessage({
-      domain: window.location.host,
-      address,
-      statement: "Sign in to Prophit",
-      uri: window.location.origin,
-      version: "1",
-      chainId: 56, // BSC
-      nonce,
+  // Register server key quorum as session signer for server-side signing
+  useEffect(() => {
+    if (!authenticated || !embeddedWallet) return;
+    if (delegatedRef.current === embeddedWallet.address) return;
+    delegatedRef.current = embeddedWallet.address;
+    addSessionSigners({
+      address: embeddedWallet.address,
+      signers: [{ signerId: KEY_QUORUM_ID, policyIds: [POLICY_ID] }],
+    }).catch((err) => {
+      // "Duplicate signer" means it's already registered — safe to ignore
+      if (String(err).includes("Duplicate")) return;
+      console.warn("[useAuth] Failed to add session signer:", err);
+      delegatedRef.current = null;
     });
-
-    const messageString = message.prepareMessage();
-
-    // 3. Sign
-    const signature = await signMessageAsync({ message: messageString });
-
-    // 4. Verify and get token
-    const result = await verifySignature.mutateAsync({
-      message: messageString,
-      signature,
-    });
-
-    // 5. Store session
-    setSession(result.token);
-
-    return { userId: result.userId, address: result.address };
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, embeddedWallet?.address]);
 
   return {
-    signIn,
-    isConnected,
-    address,
-    isLoading: requestNonce.isPending || verifySignature.isPending,
+    login,
+    logout,
+    isAuthenticated: authenticated,
+    isReady: ready,
+    address: address as `0x${string}` | undefined,
+    user,
+    getAccessToken,
   };
 }

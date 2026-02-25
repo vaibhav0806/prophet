@@ -4,13 +4,28 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 const API_BASE = process.env.NEXT_PUBLIC_PLATFORM_URL || "http://localhost:4000";
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("prophit_token");
+// --- Token management (Privy access token) ---
+
+let _authenticated = false;
+let _accessTokenGetter: (() => Promise<string | null>) | null = null;
+
+export function setAuthenticated(auth: boolean) {
+  _authenticated = auth;
+}
+
+export function setAccessTokenGetter(fn: (() => Promise<string | null>) | null) {
+  _accessTokenGetter = fn;
+}
+
+async function getToken(): Promise<string | null> {
+  if (_accessTokenGetter) {
+    return _accessTokenGetter();
+  }
+  return null;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getToken();
+  const token = await getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -24,23 +39,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.error || `API error: ${res.status}`);
   }
   return res.json();
-}
-
-// --- Auth ---
-export function useRequestNonce() {
-  return useMutation({
-    mutationFn: () => apiFetch<{ nonce: string }>("/api/auth/nonce", { method: "POST" }),
-  });
-}
-
-export function useVerifySignature() {
-  return useMutation({
-    mutationFn: (params: { message: string; signature: string }) =>
-      apiFetch<{ token: string; userId: string; address: string }>("/api/auth/verify", {
-        method: "POST",
-        body: JSON.stringify(params),
-      }),
-  });
 }
 
 // --- User Profile ---
@@ -62,7 +60,7 @@ export function useProfile() {
         agentStatus: string;
       } | null;
     }>("/api/me"),
-    enabled: !!getToken(),
+    enabled: _authenticated,
     refetchInterval: 10000,
   });
 }
@@ -86,7 +84,7 @@ export function useWallet() {
       bnbBalance: string;
       deposits: Array<{ id: string; token: string; amount: string; confirmedAt: string }>;
     }>("/api/wallet"),
-    enabled: !!getToken(),
+    enabled: _authenticated,
     refetchInterval: 15000,
   });
 }
@@ -114,7 +112,7 @@ export function useAgentStatus() {
       uptime: number;
       config?: Record<string, unknown>;
     }>("/api/agent/status"),
-    enabled: !!getToken(),
+    enabled: _authenticated,
     refetchInterval: 3000,
   });
 }
@@ -179,19 +177,11 @@ export function useTrades(limit = 50, offset = 0) {
       limit: number;
       offset: number;
     }>(`/api/trades?limit=${limit}&offset=${offset}`),
-    enabled: !!getToken(),
+    enabled: _authenticated,
   });
 }
 
 // --- Session helpers ---
-export function setSession(token: string) {
-  localStorage.setItem("prophit_token", token);
-}
-
-export function clearSession() {
-  localStorage.removeItem("prophit_token");
-}
-
 export function hasSession(): boolean {
-  return !!getToken();
+  return _authenticated;
 }

@@ -5,21 +5,21 @@ import { useMarkets } from '@/hooks/use-platform-api'
 import { formatUSD, formatNumber, truncateAddress } from '@/lib/format'
 
 function spreadColor(bps: number): string {
-  if (bps >= 200) return 'text-emerald-400'
-  if (bps >= 100) return 'text-yellow-400'
+  if (bps >= 200) return 'text-[#F0B90B]'
+  if (bps >= 100) return 'text-[#FFD43B]'
   return 'text-gray-400'
 }
 
 function SkeletonTable() {
   return (
-    <div className="bg-gray-900/50 border border-gray-800/80 rounded-xl overflow-hidden">
-      <div className="p-4 border-b border-gray-800/60">
+    <div className="card rounded-2xl overflow-hidden">
+      <div className="p-4 border-b border-[#1F1F1F]">
         <div className="flex items-center gap-3">
           <div className="skeleton h-4 w-32" />
           <div className="skeleton h-4 w-20 ml-auto" />
         </div>
       </div>
-      <div className="divide-y divide-gray-800/40">
+      <div className="divide-y divide-[#1F1F1F]">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="px-4 py-4 flex items-center gap-4">
             <div className="skeleton h-3 w-24" />
@@ -40,8 +40,8 @@ function SkeletonTable() {
 
 function StatBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-gray-800/30 rounded-lg px-4 py-3">
-      <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">{label}</div>
+    <div className="card rounded-2xl px-4 py-3">
+      <div className="text-[10px] text-[#555] uppercase tracking-[0.1em] font-medium mb-1">{label}</div>
       <div className="text-sm font-mono tabular-nums font-medium">{value}</div>
     </div>
   )
@@ -72,11 +72,11 @@ export default function MarketsPage() {
   }, [data?.updatedAt])
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="page-enter p-6 lg:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Live Opportunities</h1>
+          <h1 className="text-2xl font-bold tracking-tight heading-accent">Live Opportunities</h1>
           <p className="text-sm text-gray-500 mt-1">
             {data ? (
               <>
@@ -89,7 +89,7 @@ export default function MarketsPage() {
         </div>
         {dataUpdatedAt > 0 && (
           <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#F0B90B] pulse-dot" />
             Live
           </div>
         )}
@@ -107,9 +107,9 @@ export default function MarketsPage() {
       {isLoading && <SkeletonTable />}
 
       {!isLoading && sorted.length === 0 && (
-        <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-12 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-800/60 mb-4">
-            <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <div className="card rounded-2xl p-12 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F0B90B]/5 border border-[#F0B90B]/10 mb-4">
+            <svg className="w-6 h-6 text-[#F0B90B]/40" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
           </div>
@@ -119,11 +119,11 @@ export default function MarketsPage() {
       )}
 
       {sorted.length > 0 && (
-        <div className="bg-gray-900/50 border border-gray-800/80 rounded-xl overflow-hidden">
+        <div className="card rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-gold">
               <thead>
-                <tr className="border-b border-gray-800/80 text-[11px] uppercase tracking-wider text-gray-500">
+                <tr className="border-b border-[#1F1F1F] text-[11px] uppercase tracking-wider text-gray-500">
                   <th className="px-4 py-3 text-left font-medium">Market</th>
                   <th className="px-4 py-3 text-left font-medium">Protocol A</th>
                   <th className="px-4 py-3 text-left font-medium">Protocol B</th>
@@ -135,7 +135,7 @@ export default function MarketsPage() {
                   <th className="px-4 py-3 text-right font-medium">Liquidity B</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800/40">
+              <tbody className="divide-y divide-[#1F1F1F]">
                 {sorted.map((opp, i) => {
                   const isBest = i === 0
                   const estProfit = parseFloat(opp.estProfit) / 1e18
@@ -147,7 +147,7 @@ export default function MarketsPage() {
                     <tr
                       key={`${opp.marketId}-${i}`}
                       className={`
-                        transition-colors hover:bg-gray-800/30
+                        transition-colors hover:bg-[#1A1A1A]/60
                         ${isBest ? 'row-glow' : ''}
                       `}
                     >
@@ -155,12 +155,12 @@ export default function MarketsPage() {
                         {truncateAddress(opp.marketId, 6)}
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border bg-gray-700/30 text-gray-300 border-gray-600/30">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border bg-[#1A1A1A]/60 text-gray-300 border-[#2A2A2A]">
                           {opp.protocolA}
                         </span>
                       </td>
                       <td className="px-4 py-3.5">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border bg-gray-700/30 text-gray-300 border-gray-600/30">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border bg-[#1A1A1A]/60 text-gray-300 border-[#2A2A2A]">
                           {opp.protocolB}
                         </span>
                       </td>
@@ -170,7 +170,7 @@ export default function MarketsPage() {
                       <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">
                         {opp.grossSpreadBps} <span className="text-gray-600">bps</span>
                       </td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-emerald-400">
+                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-[#F0B90B]">
                         {formatUSD(estProfit, 2)}
                       </td>
                       <td className="px-4 py-3.5 text-right font-mono tabular-nums text-gray-300">

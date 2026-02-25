@@ -10,13 +10,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@privy-io/react-auth": "^3.14.1",
     "@tanstack/react-query": "^5.90.21",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",
-    "siwe": "^3.0.0",
-    "viem": "^2.46.2",
-    "wagmi": "^2.19.5"
+    "viem": "^2.46.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

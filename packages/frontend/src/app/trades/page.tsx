@@ -2,16 +2,17 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTrades, hasSession } from '@/hooks/use-platform-api'
+import { useTrades } from '@/hooks/use-platform-api'
+import { useAuth } from '@/hooks/use-auth'
 import { formatUSD, truncateAddress, formatRelativeTime } from '@/lib/format'
 
 const PAGE_SIZE = 20
 
 const STATUS_STYLES: Record<string, string> = {
-  OPEN: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  OPEN: 'bg-[#F0B90B]/10 text-[#F0B90B] border-[#F0B90B]/20',
   PARTIAL: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   FILLED: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-  CLOSED: 'bg-gray-700/30 text-gray-400 border-gray-600/30',
+  CLOSED: 'bg-[#1A1A1A]/60 text-gray-400 border-[#2A2A2A]',
   EXPIRED: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
 }
 
@@ -32,7 +33,7 @@ function PnlCell({ pnl }: { pnl: number | null }) {
   const isPositive = display > 0
   const isNegative = display < 0
   return (
-    <span className={`font-mono tabular-nums font-medium ${isPositive ? 'text-emerald-400' : isNegative ? 'text-red-400' : 'text-gray-400'}`}>
+    <span className={`font-mono tabular-nums font-medium ${isPositive ? 'text-[#00FF88]' : isNegative ? 'text-[#FF4757]' : 'text-gray-400'}`}>
       {isPositive ? '+' : ''}{formatUSD(display, 2)}
     </span>
   )
@@ -40,14 +41,14 @@ function PnlCell({ pnl }: { pnl: number | null }) {
 
 function SkeletonTable() {
   return (
-    <div className="bg-gray-900/50 border border-gray-800/80 rounded-xl overflow-hidden">
-      <div className="p-4 border-b border-gray-800/60">
+    <div className="card rounded-2xl overflow-hidden">
+      <div className="p-4 border-b border-[#1F1F1F]">
         <div className="flex items-center gap-3">
           <div className="skeleton h-4 w-28" />
           <div className="skeleton h-4 w-16 ml-auto" />
         </div>
       </div>
-      <div className="divide-y divide-gray-800/40">
+      <div className="divide-y divide-[#1F1F1F]">
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="px-4 py-4 flex items-center gap-4">
             <div className="skeleton h-3 w-24" />
@@ -67,6 +68,7 @@ function SkeletonTable() {
 
 export default function TradesPage() {
   const router = useRouter()
+  const { isAuthenticated, isReady } = useAuth()
   const [offset, setOffset] = useState(0)
   const [allTrades, setAllTrades] = useState<Array<{
     id: string
@@ -86,10 +88,10 @@ export default function TradesPage() {
 
   // Auth guard
   useEffect(() => {
-    if (typeof window !== 'undefined' && !hasSession()) {
+    if (isReady && !isAuthenticated) {
       router.replace('/login')
     }
-  }, [router])
+  }, [isReady, isAuthenticated, router])
 
   // Accumulate trades for pagination
   useEffect(() => {
@@ -111,14 +113,14 @@ export default function TradesPage() {
     setOffset((prev) => prev + PAGE_SIZE)
   }
 
-  if (typeof window !== 'undefined' && !hasSession()) return null
+  if (!isReady || !isAuthenticated) return null
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="page-enter p-6 lg:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Trade History</h1>
+          <h1 className="text-2xl font-bold tracking-tight heading-accent">Trade History</h1>
           <p className="text-sm text-gray-500 mt-1">
             {allTrades.length > 0 && (
               <span className="font-mono tabular-nums">{allTrades.length}</span>
@@ -131,10 +133,10 @@ export default function TradesPage() {
       {isLoading && offset === 0 && <SkeletonTable />}
 
       {!isLoading && allTrades.length === 0 && (
-        <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-12 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-800/60 mb-4">
-            <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+        <div className="card rounded-2xl p-12 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F0B90B]/5 border border-[#F0B90B]/10 mb-4">
+            <svg className="w-6 h-6 text-[#F0B90B]/40 spin-ring" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
             </svg>
           </div>
           <div className="text-gray-400 font-medium">No trades yet</div>
@@ -143,11 +145,11 @@ export default function TradesPage() {
       )}
 
       {allTrades.length > 0 && (
-        <div className="bg-gray-900/50 border border-gray-800/80 rounded-xl overflow-hidden">
+        <div className="card rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-gold">
               <thead>
-                <tr className="border-b border-gray-800/80 text-[11px] uppercase tracking-wider text-gray-500">
+                <tr className="border-b border-[#1F1F1F] text-[11px] uppercase tracking-wider text-gray-500">
                   <th className="px-4 py-3 text-left font-medium">Market</th>
                   <th className="px-4 py-3 text-left font-medium">Status</th>
                   <th className="px-4 py-3 text-right font-medium">Cost</th>
@@ -158,7 +160,7 @@ export default function TradesPage() {
                   <th className="px-4 py-3 text-right font-medium">Closed</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800/40">
+              <tbody className="divide-y divide-[#1F1F1F]">
                 {allTrades.map((trade) => {
                   const openedRel = formatRelativeTime(Math.floor(new Date(trade.openedAt).getTime() / 1000))
                   const closedRel = trade.closedAt
@@ -166,7 +168,7 @@ export default function TradesPage() {
                     : null
 
                   return (
-                    <tr key={trade.id} className="transition-colors hover:bg-gray-800/30">
+                    <tr key={trade.id} className="transition-colors hover:bg-[#1A1A1A]/60">
                       <td className="px-4 py-3.5 font-mono text-xs text-gray-400">
                         {truncateAddress(trade.marketId, 6)}
                       </td>
@@ -200,15 +202,15 @@ export default function TradesPage() {
 
           {/* Load More */}
           {hasMore && (
-            <div className="border-t border-gray-800/60 p-4 flex justify-center">
+            <div className="border-t border-[#1F1F1F] p-4 flex justify-center">
               <button
                 onClick={handleLoadMore}
                 disabled={isFetching}
-                className="px-5 py-2.5 bg-gray-700/60 hover:bg-gray-600/60 border border-gray-600/40 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isFetching ? (
                   <span className="flex items-center gap-2">
-                    <span className="inline-block w-4 h-4 border-2 border-gray-600 border-t-emerald-400 rounded-full spin-slow" />
+                    <span className="inline-block w-4 h-4 border-2 border-gray-600 border-t-[#F0B90B] rounded-full spin-slow" />
                     Loading...
                   </span>
                 ) : (
