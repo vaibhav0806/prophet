@@ -1,9 +1,10 @@
-import { createWalletClient, http, defineChain } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { encodeFunctionData } from "viem";
 import type { Database } from "@prophit/shared/db";
 import { withdrawals } from "@prophit/shared/db";
 import { eq } from "drizzle-orm";
-import type { KeyVault } from "./key-vault.js";
+import type { PrivyClient } from "@privy-io/node";
+import { authorizationContext } from "../auth/privy.js";
+import { getOrCreateWallet } from "./privy-wallet.js";
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955" as `0x${string}`;
 
@@ -22,27 +23,20 @@ const erc20TransferAbi = [
 
 export class WithdrawalProcessor {
   private readonly db: Database;
-  private readonly keyVault: KeyVault;
-  private readonly rpcUrl: string;
+  private readonly privyClient: PrivyClient;
   private readonly chainId: number;
 
   constructor(params: {
     db: Database;
-    keyVault: KeyVault;
-    rpcUrl: string;
+    privyClient: PrivyClient;
     chainId: number;
   }) {
     this.db = params.db;
-    this.keyVault = params.keyVault;
-    this.rpcUrl = params.rpcUrl;
+    this.privyClient = params.privyClient;
     this.chainId = params.chainId;
   }
 
-  /**
-   * Process a pending withdrawal request.
-   */
   async processWithdrawal(withdrawalId: string): Promise<{ txHash: string }> {
-    // Get the withdrawal record
     const [withdrawal] = await this.db.select()
       .from(withdrawals)
       .where(eq(withdrawals.id, withdrawalId))
@@ -57,42 +51,43 @@ export class WithdrawalProcessor {
       .where(eq(withdrawals.id, withdrawalId));
 
     try {
-      // Get user's private key
-      const privateKey = await this.keyVault.getPrivateKey(withdrawal.userId);
-      if (!privateKey) throw new Error("No trading wallet found for user");
-
-      const chain = defineChain({
-        id: this.chainId,
-        name: this.chainId === 56 ? "BNB Smart Chain" : "prophit-chain",
-        nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-        rpcUrls: { default: { http: [this.rpcUrl] } },
-      });
-
-      const account = privateKeyToAccount(privateKey);
-      const walletClient = createWalletClient({
-        account,
-        chain,
-        transport: http(this.rpcUrl, { timeout: 30_000 }),
-      });
+      // Get user's Privy wallet ID
+      const { walletId } = await getOrCreateWallet(withdrawal.userId);
+      const caip2 = `eip155:${this.chainId}`;
 
       let txHash: string;
 
       if (withdrawal.token === "BNB") {
-        // Send BNB
-        txHash = await walletClient.sendTransaction({
-          to: withdrawal.toAddress as `0x${string}`,
-          value: withdrawal.amount,
-          chain,
+        const result = await this.privyClient.wallets().ethereum().sendTransaction(walletId, {
+          caip2,
+          params: {
+            transaction: {
+              to: withdrawal.toAddress,
+              value: `0x${withdrawal.amount.toString(16)}`,
+            },
+          },
+          authorization_context: authorizationContext,
         });
+        txHash = result.hash;
       } else {
-        // Send USDT (ERC-20 transfer)
-        txHash = await walletClient.writeContract({
-          address: BSC_USDT,
+        // USDT ERC-20 transfer
+        const data = encodeFunctionData({
           abi: erc20TransferAbi,
           functionName: "transfer",
           args: [withdrawal.toAddress as `0x${string}`, withdrawal.amount],
-          chain,
         });
+
+        const result = await this.privyClient.wallets().ethereum().sendTransaction(walletId, {
+          caip2,
+          params: {
+            transaction: {
+              to: BSC_USDT,
+              data,
+            },
+          },
+          authorization_context: authorizationContext,
+        });
+        txHash = result.hash;
       }
 
       // Mark as confirmed
