@@ -442,7 +442,7 @@ export default function MarketsPage() {
 
       {filtered.length === 0 && search && sorted.length > 0 && (
         <div className="text-center py-8 text-[#444] text-sm">
-          No markets matching <span className="text-[#666] font-mono">"{search}"</span>
+          No markets matching <span className="text-[#666] font-mono">&ldquo;{search}&rdquo;</span>
         </div>
       )}
 

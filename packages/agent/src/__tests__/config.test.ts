@@ -77,7 +77,7 @@ describe("config", () => {
   it("applies correct defaults", async () => {
     setMinimalEnv();
     const { config } = await import("../config.js");
-    expect(config.minSpreadBps).toBe(100);
+    expect(config.minSpreadBps).toBe(50);
     expect(config.maxPositionSize).toBe(500_000_000n);
     expect(config.scanIntervalMs).toBe(5000);
     expect(config.chainId).toBe(31337);
