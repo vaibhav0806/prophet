@@ -401,6 +401,7 @@ export class ProbableClobClient implements ClobClient {
       log.info("Probable order placed", { data })
 
       const rawId = data.orderId ?? data.orderID ?? data.id
+      const rawQty = data.executedQty ?? data.filledQty ?? data.cumQty
       return {
         success: true,
         orderId: rawId != null ? String(rawId) : undefined,
@@ -408,6 +409,7 @@ export class ProbableClobClient implements ClobClient {
         transactionHash: typeof data.transactionsHashes === "string"
           ? data.transactionsHashes
           : undefined,
+        filledQty: rawQty != null ? Number(rawQty) : undefined,
       }
     } catch (err) {
       log.error("Probable placeOrder error", { error: String(err) })

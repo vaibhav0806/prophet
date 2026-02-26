@@ -42,6 +42,7 @@ export class ProbableProvider extends MarketProvider {
     string,
     { probableMarketId: string; conditionId: string; yesTokenId: string; noTokenId: string }
   >;
+  private deadMarketIds = new Set<string>();
 
   constructor(
     adapterAddress: `0x${string}`,
@@ -64,6 +65,7 @@ export class ProbableProvider extends MarketProvider {
     const quotes: MarketQuote[] = [];
 
     for (const marketId of this.marketIds) {
+      if (this.deadMarketIds.has(marketId)) continue;
       const mapping = this.marketMap.get(marketId);
       if (!mapping) continue;
 
@@ -119,7 +121,12 @@ export class ProbableProvider extends MarketProvider {
           quotedAt: Date.now(),
         });
       } catch (err) {
-        log.warn("Failed to fetch Probable quote", { marketId, error: String(err) });
+        if (err instanceof Error && err.message.includes("400")) {
+          this.deadMarketIds.add(marketId);
+          log.info("Probable market has no orderbook, skipping future polls", { marketId });
+        } else {
+          log.warn("Failed to fetch Probable quote", { marketId, error: String(err) });
+        }
       }
     }
 
@@ -173,6 +180,6 @@ export class ProbableProvider extends MarketProvider {
       const data = await res.json();
       if (!data.asks || !data.bids) throw new Error("Invalid orderbook response");
       return data as ProbableOrderBook;
-    }, { label: `Probable orderbook ${tokenId}` });
+    }, { label: `Probable orderbook ${tokenId}`, shouldRetry: (err) => !(err instanceof Error && err.message.includes("400")) });
   }
 }

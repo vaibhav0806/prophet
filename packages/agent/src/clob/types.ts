@@ -40,6 +40,7 @@ export interface OrderResult {
   status?: string;
   error?: string;
   transactionHash?: string;
+  filledQty?: number;
 }
 
 export interface ClobClient {
