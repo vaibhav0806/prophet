@@ -36,7 +36,7 @@ export const config = {
   adapterBAddress: executionMode === "vault" ? requireAddress("ADAPTER_B_ADDRESS") : (process.env.ADAPTER_B_ADDRESS ?? undefined) as `0x${string}` | undefined,
   usdtAddress: executionMode === "vault" ? requireAddress("USDT_ADDRESS") : (process.env.USDT_ADDRESS ?? "0x55d398326f99059fF775485246999027B3197955") as `0x${string}`,
   marketId: executionMode === "vault" ? requireHex("MARKET_ID") as `0x${string}` : (process.env.MARKET_ID ?? undefined) as `0x${string}` | undefined,
-  minSpreadBps: Number(process.env.MIN_SPREAD_BPS ?? "100"),
+  minSpreadBps: Number(process.env.MIN_SPREAD_BPS ?? "50"),
   maxPositionSize: BigInt(process.env.MAX_POSITION_SIZE ?? "500000000"),
   scanIntervalMs: Number(process.env.SCAN_INTERVAL_MS ?? "5000"),
   gasToUsdtRate: BigInt(process.env.GAS_TO_USDT_RATE || "3000000000"), // default $3000 ETH in 6-dec USDT
