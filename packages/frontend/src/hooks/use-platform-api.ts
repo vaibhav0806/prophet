@@ -53,6 +53,7 @@ export function useProfile() {
         minTradeSize: string;
         maxTradeSize: string;
         minSpreadBps: number;
+        maxSpreadBps: number | null;
         maxTotalTrades: number | null;
         tradingDurationMs: string | null;
         dailyLossLimit: string;
