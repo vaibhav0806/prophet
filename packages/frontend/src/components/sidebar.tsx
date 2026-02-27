@@ -115,7 +115,7 @@ export function Sidebar() {
               PROPHIT
             </span>
           </Link>
-          <p className="text-[11px] text-[#6B7280] mt-1.5 uppercase tracking-[0.35em] font-medium">Arbitrage Engine</p>
+          <p className="text-[11px] text-[#6B7280] mt-1.5 uppercase tracking-[0.2em] font-medium whitespace-nowrap">Arbitrage Engine</p>
         </div>
 
         <div className="h-px mx-4 bg-gradient-to-r from-[#00D4FF]/15 via-[#00D4FF]/08 to-transparent" />

@@ -355,9 +355,9 @@ input[type="range"] {
 
 input[type="range"]::-webkit-slider-track {
   height: 6px;
-  background: #191C24;
+  background: #262D3D;
   border-radius: 3px;
-  border: 1px solid #262D3D;
+  border: 1px solid #3D4350;
 }
 
 input[type="range"]::-webkit-slider-thumb {
