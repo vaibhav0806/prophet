@@ -353,11 +353,16 @@ input[type="range"] {
   background: transparent;
 }
 
-input[type="range"]::-webkit-slider-track {
+input[type="range"]::-webkit-slider-runnable-track {
   height: 6px;
-  background: #262D3D;
+  background: #4B5563;
   border-radius: 3px;
-  border: 1px solid #3D4350;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: #4B5563;
+  border-radius: 3px;
 }
 
 input[type="range"]::-webkit-slider-thumb {

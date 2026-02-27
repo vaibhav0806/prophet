@@ -250,7 +250,7 @@ export default function SettingsPage() {
                 step={0.1}
                 value={minSpreadPct}
                 onChange={(e) => { setMinSpreadPct(parseFloat(e.target.value)); markDirty() }}
-                className="w-full h-1.5 rounded-full cursor-pointer"
+                className="w-full cursor-pointer"
               />
               <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>0.5%</span>
@@ -275,7 +275,7 @@ export default function SettingsPage() {
                 step={0.1}
                 value={maxSpreadPct}
                 onChange={(e) => { setMaxSpreadPct(parseFloat(e.target.value)); markDirty() }}
-                className="w-full h-1.5 rounded-full cursor-pointer"
+                className="w-full cursor-pointer"
               />
               <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>1%</span>
