@@ -85,11 +85,11 @@ const DURATION_OPTIONS = [
 ] as const
 
 const RESOLUTION_OPTIONS = [
-  { label: '7 days', value: 7 },
-  { label: '14 days', value: 14 },
-  { label: '30 days', value: 30 },
-  { label: '90 days', value: 90 },
-  { label: 'Any', value: null },
+  { label: '7 days', value: '7' },
+  { label: '14 days', value: '14' },
+  { label: '30 days', value: '30' },
+  { label: '90 days', value: '90' },
+  { label: 'Any', value: '' },
 ] as const
 
 // Config trade sizes are stored as plain USDT amounts (no wei conversion)
@@ -452,7 +452,7 @@ export default function SettingsPage() {
                 </label>
                 <CustomSelect
                   value={maxResolutionDays === null ? '' : String(maxResolutionDays)}
-                  options={RESOLUTION_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value === null ? '' : String(opt.value) }))}
+                  options={RESOLUTION_OPTIONS}
                   onChange={(v) => { setMaxResolutionDays(v === '' ? null : Number(v)); markDirty() }}
                 />
                 <p className="text-xs text-gray-600 mt-1.5">Only trade markets that resolve within this window</p>
