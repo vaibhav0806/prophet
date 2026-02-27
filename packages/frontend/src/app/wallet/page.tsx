@@ -16,7 +16,7 @@ function isValidAddress(addr: string): boolean {
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
       <div className="flex-1 h-px bg-[#1C2030]" />
     </div>
   )
@@ -79,13 +79,13 @@ function BalanceDisplay({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string }
   return (
     <div className="flex gap-12 mb-8">
       <div>
-        <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">USDT</div>
+        <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">USDT</div>
         <div className="text-xl font-mono font-semibold tabular-nums text-white">
           {formatUSD(usdt, 2)}
         </div>
       </div>
       <div>
-        <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">BNB</div>
+        <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">BNB</div>
         <div className="text-xl font-mono font-semibold tabular-nums text-white">
           {formatNumber(bnb, 6)}
         </div>
@@ -228,7 +228,7 @@ function WithdrawSection({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Token selector */}
         <div>
-          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Token
           </label>
           <div className="flex gap-2">
@@ -263,7 +263,7 @@ function WithdrawSection({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string 
 
         {/* Amount */}
         <div>
-          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Amount
             <span className="text-gray-600 ml-1 normal-case tracking-normal">
               (available: {formatNumber(currentBalance, token === 'USDT' ? 2 : 6)} {token})
@@ -290,7 +290,7 @@ function WithdrawSection({ usdtRaw, bnbRaw }: { usdtRaw: string; bnbRaw: string 
 
         {/* Destination address */}
         <div>
-          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Destination Address
           </label>
           <input
@@ -353,7 +353,7 @@ function TransactionHistory({ deposits }: {
       <div>
         <SectionDivider label="Deposit History" />
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#262D3D]">No deposits yet — deposits will appear here once confirmed on-chain</div>
+          <div className="text-xs font-mono text-[#9CA3AF]">No deposits yet — deposits will appear here once confirmed on-chain</div>
         </div>
       </div>
     )
@@ -365,7 +365,7 @@ function TransactionHistory({ deposits }: {
       <div className="overflow-x-auto">
         <table className="w-full text-[13px] table-styled">
           <thead>
-            <tr className="border-b border-[#1C2030] text-[10px] uppercase tracking-wider text-gray-500">
+            <tr className="border-b border-[#1C2030] text-xs uppercase tracking-wider text-gray-500">
               <th className="px-0 pr-4 py-2.5 text-left font-medium">Token</th>
               <th className="px-4 py-2.5 text-right font-medium">Amount</th>
               <th className="px-4 pr-0 py-2.5 text-right font-medium">Date</th>
@@ -389,7 +389,7 @@ function TransactionHistory({ deposits }: {
                 >
                   <td className="px-0 pr-4 py-3">
                     <span className={`
-                      text-[10px] px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border
+                      text-xs px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border
                       ${dep.token === 'USDT' || dep.token === 'usdt'
                         ? 'bg-[#00D4FF]/10 text-[#00D4FF] border-[#00D4FF]/20'
                         : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
@@ -433,7 +433,7 @@ export default function WalletPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Wallet</h1>
+      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Wallet</h1>
 
       {isLoading && (
         <div>

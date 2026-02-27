@@ -21,7 +21,7 @@ const STATUS_STYLES: Record<string, string> = {
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] || STATUS_STYLES.CLOSED
   return (
-    <span className={`inline-block text-[10px] px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border ${style}`}>
+    <span className={`inline-block text-xs px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border ${style}`}>
       {status}
     </span>
   )
@@ -29,7 +29,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function PnlCell({ pnl }: { pnl: number | null }) {
   if (pnl === null) {
-    return <span className="text-[#262D3D] font-mono tabular-nums">&mdash;</span>
+    return <span className="text-[#4B5563] font-mono tabular-nums">&mdash;</span>
   }
   const isPositive = pnl > 0
   const isNegative = pnl < 0
@@ -44,8 +44,8 @@ function LegDetail({ leg, label }: { leg: TradeLeg | null; label: string }) {
   if (!leg) {
     return (
       <div className="flex-1 min-w-0 p-3 rounded border border-[#1C2030] bg-[#0B0D11]">
-        <div className="text-[11px] uppercase tracking-wider text-[#3D4350] mb-2">{label}</div>
-        <div className="text-[13px] text-[#3D4350]">No data</div>
+        <div className="text-xs uppercase tracking-wider text-[#6B7280] mb-2">{label}</div>
+        <div className="text-[13px] text-[#6B7280]">No data</div>
       </div>
     )
   }
@@ -55,10 +55,10 @@ function LegDetail({ leg, label }: { leg: TradeLeg | null; label: string }) {
   return (
     <div className="flex-1 min-w-0 p-3 rounded border border-[#1C2030] bg-[#0B0D11]">
       <div className="flex items-center justify-between mb-2.5">
-        <div className="text-[11px] uppercase tracking-wider text-[#3D4350]">{label}</div>
+        <div className="text-xs uppercase tracking-wider text-[#6B7280]">{label}</div>
         <div className="flex items-center gap-1.5">
           <ProtocolLogo name={leg.platform} size={14} />
-          <span className="text-[11px] font-mono text-[#3D4350] uppercase tracking-wider">
+          <span className="text-xs font-mono text-[#6B7280] uppercase tracking-wider">
             {leg.platform.charAt(0).toUpperCase() + leg.platform.slice(1).toLowerCase()}
           </span>
         </div>
@@ -66,36 +66,36 @@ function LegDetail({ leg, label }: { leg: TradeLeg | null; label: string }) {
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[13px]">
         <div>
-          <span className="text-[#3D4350]">Side </span>
+          <span className="text-[#6B7280]">Side </span>
           <span className={`font-medium ${sideColor}`}>{leg.side}</span>
         </div>
         <div>
-          <span className="text-[#3D4350]">Price </span>
+          <span className="text-[#6B7280]">Price </span>
           <span className="font-mono tabular-nums text-[#E0E2E9]">{leg.price.toFixed(4)}</span>
         </div>
         <div>
-          <span className="text-[#3D4350]">Size </span>
+          <span className="text-[#6B7280]">Size </span>
           <span className="font-mono tabular-nums text-[#E0E2E9]">{leg.size.toFixed(2)}</span>
         </div>
         <div>
-          <span className="text-[#3D4350]">Filled </span>
+          <span className="text-[#6B7280]">Filled </span>
           <span className="font-mono tabular-nums text-[#E0E2E9]">{leg.filledSize.toFixed(2)}</span>
-          {leg.filled && <span className="text-[#22C55E] ml-1 text-[11px]">&#10003;</span>}
+          {leg.filled && <span className="text-[#22C55E] ml-1 text-xs">&#10003;</span>}
         </div>
       </div>
 
       {(leg.orderId || leg.transactionHash) && (
         <div className="mt-2.5 pt-2 border-t border-[#1C2030] space-y-1">
           {leg.orderId && (
-            <div className="text-[11px]">
-              <span className="text-[#3D4350]">Order </span>
-              <span className="font-mono text-[#3D4350]">{truncateAddress(leg.orderId, 6)}</span>
+            <div className="text-xs">
+              <span className="text-[#6B7280]">Order </span>
+              <span className="font-mono text-[#6B7280]">{truncateAddress(leg.orderId, 6)}</span>
             </div>
           )}
           {leg.transactionHash && (
-            <div className="text-[11px]">
-              <span className="text-[#3D4350]">Tx </span>
-              <span className="font-mono text-[#3D4350]">{truncateAddress(leg.transactionHash, 6)}</span>
+            <div className="text-xs">
+              <span className="text-[#6B7280]">Tx </span>
+              <span className="font-mono text-[#6B7280]">{truncateAddress(leg.transactionHash, 6)}</span>
             </div>
           )}
         </div>
@@ -117,24 +117,24 @@ function ExpandedRow({ trade }: { trade: Trade }) {
             </div>
 
             {/* Market details */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-[#3D4350] pt-1">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#6B7280] pt-1">
               {trade.marketCategory && (
                 <div>
-                  <span className="text-[#3D4350]">Category </span>
+                  <span className="text-[#6B7280]">Category </span>
                   <span className="text-[#6B7280]">{trade.marketCategory}</span>
                 </div>
               )}
               {trade.resolvesAt && (
                 <div>
-                  <span className="text-[#3D4350]">Resolves </span>
+                  <span className="text-[#6B7280]">Resolves </span>
                   <span className="text-[#6B7280] font-mono tabular-nums">
                     {new Date(trade.resolvesAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 </div>
               )}
               <div>
-                <span className="text-[#3D4350]">ID </span>
-                <span className="font-mono text-[#3D4350]">{truncateAddress(trade.marketId, 8)}</span>
+                <span className="text-[#6B7280]">ID </span>
+                <span className="font-mono text-[#6B7280]">{truncateAddress(trade.marketId, 8)}</span>
               </div>
             </div>
           </div>
@@ -219,29 +219,29 @@ export default function TradesPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Trade History</h1>
+      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Trade History</h1>
 
       {isLoading && offset === 0 && <SkeletonTable />}
 
       {!isLoading && allTrades.length === 0 && (
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#262D3D]">NO TRADES YET</div>
-          <div className="text-[11px] text-[#1C2030] mt-1">Start the agent to begin executing arbitrage trades</div>
+          <div className="text-xs font-mono text-[#6B7280]">NO TRADES YET</div>
+          <div className="text-xs text-[#9CA3AF] mt-1">Start the agent to begin executing arbitrage trades</div>
         </div>
       )}
 
       {allTrades.length > 0 && (
         <>
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">Executions</span>
+            <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">Executions</span>
             <div className="flex-1 h-px bg-[#1C2030]" />
-            <span className="text-[11px] font-mono text-[#3D4350]">{allTrades.length} loaded</span>
+            <span className="text-xs font-mono text-[#6B7280]">{allTrades.length} loaded</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-[10px] text-[#3D4350] uppercase tracking-widest">
+                <tr className="text-xs text-[#6B7280] uppercase tracking-widest">
                   <th className="pb-2 text-left font-medium">Market</th>
                   <th className="pb-2 text-left font-medium">Status</th>
                   <th className="pb-2 text-right font-medium">Cost</th>
@@ -294,16 +294,16 @@ export default function TradesPage() {
                           {formatUSD(trade.expectedPayout, 2)}
                         </td>
                         <td className="py-2.5 text-right font-mono tabular-nums text-[#E0E2E9]">
-                          {trade.spreadBps}<span className="text-[#3D4350] text-[11px]">&thinsp;bps</span>
+                          {trade.spreadBps}<span className="text-[#6B7280] text-xs">&thinsp;bps</span>
                         </td>
                         <td className="py-2.5 text-right">
                           <PnlCell pnl={trade.pnl} />
                         </td>
-                        <td className="py-2.5 text-right font-mono text-[11px] text-[#3D4350]" title={openedRel.full}>
+                        <td className="py-2.5 text-right font-mono text-xs text-[#6B7280]" title={openedRel.full}>
                           {openedRel.relative}
                         </td>
-                        <td className="py-2.5 text-right font-mono text-[11px] text-[#3D4350]" title={closedRel?.full}>
-                          {closedRel ? closedRel.relative : <span className="text-[#262D3D]">&mdash;</span>}
+                        <td className="py-2.5 text-right font-mono text-xs text-[#6B7280]" title={closedRel?.full}>
+                          {closedRel ? closedRel.relative : <span className="text-[#4B5563]">&mdash;</span>}
                         </td>
                       </tr>
                       {isExpanded && <ExpandedRow trade={trade} />}
@@ -320,7 +320,7 @@ export default function TradesPage() {
               <button
                 onClick={handleLoadMore}
                 disabled={isFetching}
-                className="px-4 py-1.5 bg-[#111318] hover:bg-[#191C24] border border-[#1C2030] rounded text-xs font-mono uppercase tracking-wider text-[#3D4350] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-1.5 bg-[#111318] hover:bg-[#191C24] border border-[#1C2030] rounded text-xs font-mono uppercase tracking-wider text-[#6B7280] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isFetching ? (
                   <span className="flex items-center gap-2">

@@ -1,9 +1,80 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProfile, useUpdateConfig } from '@/hooks/use-platform-api'
 import { useAuth } from '@/hooks/use-auth'
+
+/* ─── Custom Select ─── */
+
+function CustomSelect<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T
+  options: readonly { label: string; value: T }[]
+  onChange: (value: T) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selected = options.find((o) => o.value === value)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`
+          w-full flex items-center justify-between bg-[#191C24] border rounded-lg px-3.5 py-2.5 text-sm text-left
+          transition-colors cursor-pointer
+          ${open
+            ? 'border-[#00D4FF]/50 ring-1 ring-[#00D4FF]/20'
+            : 'border-[#262D3D] hover:border-[#3D4350]'
+          }
+        `}
+      >
+        <span>{selected?.label ?? '—'}</span>
+        <svg
+          className={`w-4 h-4 text-[#6B7280] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-[#262D3D] bg-[#141720] shadow-xl shadow-black/40 overflow-hidden">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={`
+                w-full text-left px-3.5 py-2.5 text-sm transition-colors
+                ${opt.value === value
+                  ? 'bg-[#00D4FF]/10 text-[#00D4FF]'
+                  : 'text-[#E0E2E9] hover:bg-[#1C2030]'
+                }
+              `}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const DURATION_OPTIONS = [
   { label: '1 hour', value: '3600000' },
@@ -14,11 +85,11 @@ const DURATION_OPTIONS = [
 ] as const
 
 const RESOLUTION_OPTIONS = [
-  { label: '7 days', value: 7 },
-  { label: '14 days', value: 14 },
-  { label: '30 days', value: 30 },
-  { label: '90 days', value: 90 },
-  { label: 'Any', value: null },
+  { label: '7 days', value: '7' },
+  { label: '14 days', value: '14' },
+  { label: '30 days', value: '30' },
+  { label: '90 days', value: '90' },
+  { label: 'Any', value: '' },
 ] as const
 
 // Config trade sizes are stored as plain USDT amounts (no wei conversion)
@@ -31,7 +102,7 @@ function parseUsdt(raw: string): string {
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
       <div className="flex-1 h-px bg-[#1C2030]" />
     </div>
   )
@@ -92,7 +163,14 @@ export default function SettingsPage() {
   const [maxResolutionDays, setMaxResolutionDays] = useState<number | null>(null)
 
   const [saved, setSaved] = useState(false)
-  const [dirty, setDirty] = useState(false)
+
+  // Snapshot of initial values from the server config
+  type FormSnapshot = {
+    minTradeSize: string; maxTradeSize: string; minSpreadPct: number; maxSpreadPct: number
+    unlimitedTrades: boolean; maxTotalTrades: string; tradingDuration: string
+    dailyLossLimit: string; maxResolutionDays: number | null
+  }
+  const [initial, setInitial] = useState<FormSnapshot | null>(null)
 
   // Auth guard
   useEffect(() => {
@@ -106,24 +184,50 @@ export default function SettingsPage() {
     const config = profile?.config
     if (!config) return
 
-    setMinTradeSize(parseUsdt(config.minTradeSize))
-    setMaxTradeSize(parseUsdt(config.maxTradeSize))
-    setMinSpreadPct(config.minSpreadBps / 100)
-    setMaxSpreadPct((config.maxSpreadBps ?? 400) / 100)
-    setUnlimitedTrades(config.maxTotalTrades === null)
-    setMaxTotalTrades(config.maxTotalTrades !== null ? String(config.maxTotalTrades) : '')
-    setTradingDuration(config.tradingDurationMs ?? '')
-    setDailyLossLimit(parseUsdt(config.dailyLossLimit))
-    setMaxResolutionDays(config.maxResolutionDays)
-    setDirty(false)
+    const snap: FormSnapshot = {
+      minTradeSize: parseUsdt(config.minTradeSize),
+      maxTradeSize: parseUsdt(config.maxTradeSize),
+      minSpreadPct: config.minSpreadBps / 100,
+      maxSpreadPct: (config.maxSpreadBps ?? 400) / 100,
+      unlimitedTrades: config.maxTotalTrades === null,
+      maxTotalTrades: config.maxTotalTrades !== null ? String(config.maxTotalTrades) : '',
+      tradingDuration: config.tradingDurationMs ?? '',
+      dailyLossLimit: parseUsdt(config.dailyLossLimit),
+      maxResolutionDays: config.maxResolutionDays,
+    }
+
+    setMinTradeSize(snap.minTradeSize)
+    setMaxTradeSize(snap.maxTradeSize)
+    setMinSpreadPct(snap.minSpreadPct)
+    setMaxSpreadPct(snap.maxSpreadPct)
+    setUnlimitedTrades(snap.unlimitedTrades)
+    setMaxTotalTrades(snap.maxTotalTrades)
+    setTradingDuration(snap.tradingDuration)
+    setDailyLossLimit(snap.dailyLossLimit)
+    setMaxResolutionDays(snap.maxResolutionDays)
+    setInitial(snap)
   }, [profile?.config])
 
   useEffect(() => {
     populateForm()
   }, [populateForm])
 
+  const dirty = useMemo(() => {
+    if (!initial) return false
+    return (
+      minTradeSize !== initial.minTradeSize ||
+      maxTradeSize !== initial.maxTradeSize ||
+      minSpreadPct !== initial.minSpreadPct ||
+      maxSpreadPct !== initial.maxSpreadPct ||
+      unlimitedTrades !== initial.unlimitedTrades ||
+      maxTotalTrades !== initial.maxTotalTrades ||
+      tradingDuration !== initial.tradingDuration ||
+      dailyLossLimit !== initial.dailyLossLimit ||
+      maxResolutionDays !== initial.maxResolutionDays
+    )
+  }, [initial, minTradeSize, maxTradeSize, minSpreadPct, maxSpreadPct, unlimitedTrades, maxTotalTrades, tradingDuration, dailyLossLimit, maxResolutionDays])
+
   const markDirty = () => {
-    setDirty(true)
     setSaved(false)
   }
 
@@ -151,7 +255,10 @@ export default function SettingsPage() {
     updateConfig.mutate(payload, {
       onSuccess: () => {
         setSaved(true)
-        setDirty(false)
+        setInitial({
+          minTradeSize, maxTradeSize, minSpreadPct, maxSpreadPct,
+          unlimitedTrades, maxTotalTrades, tradingDuration, dailyLossLimit, maxResolutionDays,
+        })
         setTimeout(() => setSaved(false), 3000)
       },
     })
@@ -161,7 +268,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter max-w-2xl">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Settings</h1>
+      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Settings</h1>
 
       {isLoading && <SkeletonSettings />}
 
@@ -172,7 +279,7 @@ export default function SettingsPage() {
             <SectionDivider label="Trade Sizing" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Minimum Trade Size
                   <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                 </label>
@@ -190,7 +297,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Maximum Trade Size
                   <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                 </label>
@@ -208,7 +315,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Safety Circuit Breaker
                   <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                 </label>
@@ -236,7 +343,7 @@ export default function SettingsPage() {
             {/* Spread slider */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">
+                <label className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">
                   Minimum Profit Margin
                 </label>
                 <span className="text-sm font-mono tabular-nums text-[#00D4FF]">
@@ -250,9 +357,9 @@ export default function SettingsPage() {
                 step={0.1}
                 value={minSpreadPct}
                 onChange={(e) => { setMinSpreadPct(parseFloat(e.target.value)); markDirty() }}
-                className="w-full h-1.5 rounded-full cursor-pointer"
+                className="w-full cursor-pointer"
               />
-              <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+              <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>0.5%</span>
                 <span>10%</span>
               </div>
@@ -261,7 +368,7 @@ export default function SettingsPage() {
             {/* Max spread slider */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">
+                <label className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">
                   Maximum Profit Margin
                 </label>
                 <span className="text-sm font-mono tabular-nums text-[#00D4FF]">
@@ -275,9 +382,9 @@ export default function SettingsPage() {
                 step={0.1}
                 value={maxSpreadPct}
                 onChange={(e) => { setMaxSpreadPct(parseFloat(e.target.value)); markDirty() }}
-                className="w-full h-1.5 rounded-full cursor-pointer"
+                className="w-full cursor-pointer"
               />
-              <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+              <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>1%</span>
                 <span>10%</span>
               </div>
@@ -286,7 +393,7 @@ export default function SettingsPage() {
 
             {/* Max total trades */}
             <div>
-              <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+              <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                 Maximum Total Trades
               </label>
               <div className="flex items-center gap-4">
@@ -329,35 +436,25 @@ export default function SettingsPage() {
             <SectionDivider label="Timing" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Trading Duration
                 </label>
-                <select
+                <CustomSelect
                   value={tradingDuration}
-                  onChange={(e) => { setTradingDuration(e.target.value); markDirty() }}
-                  className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors appearance-none cursor-pointer"
-                >
-                  {DURATION_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  options={DURATION_OPTIONS}
+                  onChange={(v) => { setTradingDuration(v); markDirty() }}
+                />
                 <p className="text-xs text-gray-600 mt-1.5">How long the agent trades per session</p>
               </div>
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Market Resolution Window
                 </label>
-                <select
+                <CustomSelect
                   value={maxResolutionDays === null ? '' : String(maxResolutionDays)}
-                  onChange={(e) => { setMaxResolutionDays(e.target.value === '' ? null : Number(e.target.value)); markDirty() }}
-                  className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors appearance-none cursor-pointer"
-                >
-                  {RESOLUTION_OPTIONS.map((opt) => (
-                    <option key={String(opt.value)} value={opt.value === null ? '' : String(opt.value)}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={RESOLUTION_OPTIONS}
+                  onChange={(v) => { setMaxResolutionDays(v === '' ? null : Number(v)); markDirty() }}
+                />
                 <p className="text-xs text-gray-600 mt-1.5">Only trade markets that resolve within this window</p>
               </div>
             </div>
