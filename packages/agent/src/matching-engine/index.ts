@@ -47,7 +47,7 @@ export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
   // Up/Down directional markets — must be before win-comp to avoid "Up or Down" matching "win"
   { name: "up-or-down",  regex: /(\w+)(?:\/\w+)?\s+up or down[\s\-]*(?:on\s+|hourly\s+)?(?:\(?)?(.+)/i },
   // Sports matchup — must be before win-comp so "Who will win: X vs Y" is parsed as matchup, not win-comp
-  { name: "matchup",     regex: /(?:who will win[:\s]+|(?:nba|nfl|mlb|nhl|lpl|lck|lec|lcs|lcp|cblol|kpl|dota2?(?:\s*-\s*\w+)?|valorant(?:\s*-\s*\w+(?:\s+\w+)*)?):\s+)(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.*)?$/i },
+  { name: "matchup",     regex: /(?:who will win[:\s]+|(?:nba|nfl|mlb|nhl|lpl|lck|lec|lcs|lcp|cblol|kpl|lol|dota\s*2?(?:\s*-\s*\w+)?|valorant(?:\s*-\s*\w+(?:\s+\w+)*)?):\s+)(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.*)?$/i },
   { name: "win-comp",     regex: /(?:will )?(.+?) win (.+)/i },
   { name: "out-as",       regex: /(?:will )?(.+?) (?:come )?out as (.+)/i },
   { name: "ipo-by",       regex: /(?:will )?(.+?) ipo by (.+)/i },
@@ -64,6 +64,7 @@ export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: "depeg-by",    regex: /(?:will )?(.+?) depeg (?:by|before) (.+)/i },
   { name: "acquire-by",  regex: /(?:will )?(.+?) acquire (.+)/i },
   { name: "return-by",   regex: /(?:will )?(.+?) return (?:by |before )(.+)/i },
+  { name: "strikes-by",  regex: /(.+?) strikes? (.+)/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,8 @@ const CATEGORY_SYNONYMS: Record<string, string> = {
   macro: "finance",
   business: "finance",
   marco: "finance",
+  // Topic-specific categories → broader bucket
+  greenland: "politics",
   // Novelty / Meme (these vary wildly across platforms — unify)
   novelty: "other",
   meme: "other",
