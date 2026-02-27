@@ -353,7 +353,7 @@ function TransactionHistory({ deposits }: {
       <div>
         <SectionDivider label="Deposit History" />
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#4B5563]">No deposits yet — deposits will appear here once confirmed on-chain</div>
+          <div className="text-xs font-mono text-[#9CA3AF]">No deposits yet — deposits will appear here once confirmed on-chain</div>
         </div>
       </div>
     )

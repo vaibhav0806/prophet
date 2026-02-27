@@ -278,8 +278,8 @@ export default function DashboardPage() {
 
             {topOpps.length === 0 ? (
               <div className="py-8 text-center">
-                <div className="text-xs font-mono text-[#4B5563]">NO ACTIVE SPREADS</div>
-                <div className="text-xs text-[#3D4350] mt-1">Waiting for scanner</div>
+                <div className="text-xs font-mono text-[#6B7280]">NO ACTIVE SPREADS</div>
+                <div className="text-xs text-[#9CA3AF] mt-1">Waiting for scanner</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -348,8 +348,8 @@ export default function DashboardPage() {
 
             {trades.length === 0 ? (
               <div className="py-8 text-center">
-                <div className="text-xs font-mono text-[#4B5563]">AWAITING EXECUTION</div>
-                <div className="text-xs text-[#3D4350] mt-1">Trades appear after agent runs</div>
+                <div className="text-xs font-mono text-[#6B7280]">AWAITING EXECUTION</div>
+                <div className="text-xs text-[#9CA3AF] mt-1">Trades appear after agent runs</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -413,14 +413,14 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Footer status ── */}
-          <div className="flex items-center gap-1.5 text-xs font-mono text-[#4B5563] pt-1">
+          <div className="flex items-center gap-1.5 text-xs font-mono text-[#9CA3AF] pt-1">
             <span className="w-1 h-1 rounded-full bg-[#00D4FF]/25 pulse-dot" />
             <span>{marketsData?.quoteCount ?? 0} quotes</span>
-            <span className="text-[#3D4350]">&middot;</span>
+            <span className="text-[#6B7280]">&middot;</span>
             <span>3 protocols</span>
             {marketsData?.updatedAt && (
               <>
-                <span className="text-[#3D4350]">&middot;</span>
+                <span className="text-[#6B7280]">&middot;</span>
                 <span>{formatRelativeTime(marketsData.updatedAt / 1000).relative}</span>
               </>
             )}

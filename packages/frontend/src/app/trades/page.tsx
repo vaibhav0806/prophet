@@ -225,8 +225,8 @@ export default function TradesPage() {
 
       {!isLoading && allTrades.length === 0 && (
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#4B5563]">NO TRADES YET</div>
-          <div className="text-xs text-[#3D4350] mt-1">Start the agent to begin executing arbitrage trades</div>
+          <div className="text-xs font-mono text-[#6B7280]">NO TRADES YET</div>
+          <div className="text-xs text-[#9CA3AF] mt-1">Start the agent to begin executing arbitrage trades</div>
         </div>
       )}
 

@@ -347,7 +347,7 @@ export default function MarketsPage() {
           {dataUpdatedAt > 0 && (
             <div className="flex items-center gap-1.5 self-center ml-auto">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00D4FF] pulse-dot" />
-              <span className="text-xs font-mono text-[#6B7280]">
+              <span className="text-xs font-mono text-[#9CA3AF]">
                 {data?.quoteCount ?? 0} quotes
               </span>
             </div>
@@ -361,7 +361,7 @@ export default function MarketsPage() {
           <div className="flex items-center gap-3 mb-3">
             <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">Spreads</span>
             <div className="flex-1 h-px bg-[#1C2030]" />
-            <span className="text-xs font-mono text-[#6B7280]">{filtered.length} shown</span>
+            <span className="text-xs font-mono text-[#9CA3AF]">{filtered.length} shown</span>
           </div>
 
           <div className="relative mb-3">
@@ -397,14 +397,14 @@ export default function MarketsPage() {
 
       {!isLoading && sorted.length === 0 && (
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#4B5563]">NO OPPORTUNITIES FOUND</div>
-          <div className="text-xs text-[#3D4350] mt-1">Scanner may be starting up -- refreshes every 10 seconds</div>
+          <div className="text-xs font-mono text-[#6B7280]">NO OPPORTUNITIES FOUND</div>
+          <div className="text-xs text-[#9CA3AF] mt-1">Scanner may be starting up -- refreshes every 10 seconds</div>
         </div>
       )}
 
       {filtered.length === 0 && search && sorted.length > 0 && (
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#4B5563]">
+          <div className="text-xs font-mono text-[#6B7280]">
             No markets matching &ldquo;{search}&rdquo;
           </div>
         </div>
