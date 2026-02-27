@@ -97,17 +97,68 @@ export const ENTITY_ALIASES: Record<string, string> = {
   si: "silver",
   gc: "gold",
   spx: "s&p 500",
+  // NBA team aliases (nickname → canonical full name)
+  "hawks": "atlanta hawks",
+  "celtics": "boston celtics",
+  "nets": "brooklyn nets",
+  "hornets": "charlotte hornets",
+  "bulls": "chicago bulls",
+  "cavaliers": "cleveland cavaliers",
+  "cavs": "cleveland cavaliers",
+  "mavericks": "dallas mavericks",
+  "mavs": "dallas mavericks",
+  "nuggets": "denver nuggets",
+  "pistons": "detroit pistons",
+  "warriors": "golden state warriors",
+  "rockets": "houston rockets",
+  "pacers": "indiana pacers",
+  "clippers": "los angeles clippers",
+  "lakers": "los angeles lakers",
+  "grizzlies": "memphis grizzlies",
+  "heat": "miami heat",
+  "bucks": "milwaukee bucks",
+  "timberwolves": "minnesota timberwolves",
+  "pelicans": "new orleans pelicans",
+  "knicks": "new york knicks",
+  "thunder": "oklahoma city thunder",
+  "magic": "orlando magic",
+  "76ers": "philadelphia 76ers",
+  "sixers": "philadelphia 76ers",
+  "suns": "phoenix suns",
+  "trail blazers": "portland trail blazers",
+  "blazers": "portland trail blazers",
+  "kings": "sacramento kings",
+  "spurs": "san antonio spurs",
+  "raptors": "toronto raptors",
+  "jazz": "utah jazz",
+  "wizards": "washington wizards",
 };
 
 /**
  * Replace known entity aliases with their canonical form in a normalized string.
- * Operates on word boundaries to avoid partial replacements.
+ * Handles both single-word and multi-word aliases (e.g., "trail blazers" → "portland trail blazers").
  */
 export function applyEntityAliases(s: string): string {
-  // Build regex from alias keys, longest first to avoid partial matches
+  // First pass: multi-word aliases (longest first to avoid partial matches)
+  if (!_multiWordAliasRegex) {
+    const multiWordKeys = Object.keys(ENTITY_ALIASES).filter((k) => k.includes(" "));
+    if (multiWordKeys.length > 0) {
+      // Sort longest first
+      multiWordKeys.sort((a, b) => b.length - a.length);
+      const pattern = multiWordKeys.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+      _multiWordAliasRegex = new RegExp(`\\b(${pattern})\\b`, "g");
+    }
+  }
+  if (_multiWordAliasRegex) {
+    s = s.replace(_multiWordAliasRegex, (match) => ENTITY_ALIASES[match] ?? match);
+  }
+
+  // Second pass: single-word aliases
   const words = s.split(/\s+/);
   return words.map((w) => ENTITY_ALIASES[w] ?? w).join(" ");
 }
+
+let _multiWordAliasRegex: RegExp | null = null;
 
 /**
  * Replace Unicode confusables with ASCII equivalents. O(n).
@@ -232,5 +283,7 @@ export function normalizeParams(
   result = result.replace(new RegExp(`\\b${yearStr}\\b`, "g"), "");
   // Strip trailing punctuation left behind after year removal (e.g. "June 30," → "June 30")
   result = result.replace(/[,.\s]+$/, "").replace(/\s+/g, " ").trim();
+  // Apply entity aliases (team names, tickers, etc.)
+  result = applyEntityAliases(result);
   return result;
 }

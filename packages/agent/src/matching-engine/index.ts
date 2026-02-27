@@ -60,6 +60,11 @@ export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: "depeg-by",    regex: /(?:will )?(.+?) depeg (?:by|before) (.+)/i },
   { name: "acquire-by",  regex: /(?:will )?(.+?) acquire (.+)/i },
   { name: "return-by",   regex: /(?:will )?(.+?) return (?:by |before )(.+)/i },
+  // Up/Down directional markets (Opinion: "Bitcoin Up or Down on Feb 27", Predict: "BTC/USD Up or Down - Feb 27")
+  { name: "up-or-down",  regex: /(\w+)(?:\/\w+)?\s+up or down[\s\-]*(?:on\s+|hourly\s+)?(?:\(?)?(.+)/i },
+  // Sports matchup: "Who will win: Team A vs Team B" or "NBA: Team A vs Team B (date)"
+  // Requires either "Who will win" prefix OR a league prefix to avoid false positives
+  { name: "matchup",     regex: /(?:who will win[:\s]+|(?:nba|nfl|mlb|nhl|lpl|lck|lec|lcs|lcp|cblol|kpl|dota2?(?:\s*-\s*\w+)?|valorant(?:\s*-\s*\w+(?:\s+\w+)*)?):\s+)(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.*)?$/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -174,6 +179,8 @@ const CATEGORY_SYNONYMS: Record<string, string> = {
   "crypto prices": "crypto",
   "fdv predictions": "crypto",
   web3: "crypto",
+  "pre tge": "crypto",
+  fdv: "crypto",
   // Politics
   political: "politics",
   election: "politics",
@@ -194,6 +201,7 @@ const CATEGORY_SYNONYMS: Record<string, string> = {
   "world cup": "sports",
   dota: "sports",
   "dota 2": "sports",
+  basketball: "sports",
   // Culture / Entertainment
   entertainment: "culture",
   pop_culture: "culture",
@@ -201,17 +209,21 @@ const CATEGORY_SYNONYMS: Record<string, string> = {
   celebrity: "culture",
   music: "culture",
   movies: "culture",
+  oscars: "culture",
   // Science / Tech
   science: "tech",
   technology: "tech",
   ai: "tech",
-  // Finance
+  // Finance / Economy
   finance: "finance",
   stocks: "finance",
   "stock market": "finance",
   commodities: "finance",
   "fed rates": "finance",
   economy: "finance",
+  macro: "finance",
+  business: "finance",
+  marco: "finance",
   // Novelty / Meme (these vary wildly across platforms — unify)
   novelty: "other",
   meme: "other",
@@ -219,12 +231,38 @@ const CATEGORY_SYNONYMS: Record<string, string> = {
   misc: "other",
   other: "other",
   general: "other",
+  more: "other",
 };
+
+/**
+ * Keywords in Predict category slugs that map to canonical categories.
+ * Predict slugs look like "btc-usd-up-down-2026-02-27-00-00-15-minutes"
+ * or "2026-nba-champion". We scan for keywords to infer category.
+ */
+const SLUG_KEYWORD_MAP: [RegExp, string][] = [
+  [/\b(btc|eth|bnb|crypto|token|fdv|defi|binance|solana|bitcoin|ethereum|airdrop|safu|tge)\b/, "crypto"],
+  [/\b(nba|nfl|ncaa|premier league|champions league|f1|nhl|fifa|world cup|stanley cup|soccer|football|ski|halfpipe)\b/, "sports"],
+  [/\b(trump|election|president|congress|senate|political|vote|governor|vance|rubio|shapiro|desantis|newsom|ossoff)\b/, "politics"],
+  [/\b(gold|silver|oil|spx|s&p|nasdaq|stock|temperature|weather)\b/, "finance"],
+  [/\b(oscars|grammy|emmy|movies|music)\b/, "culture"],
+];
 
 export function normalizeCategory(cat?: string): string {
   if (!cat) return "";
   const normalized = cat.toLowerCase().trim().replace(/[\s_-]+/g, " ");
-  return CATEGORY_SYNONYMS[normalized] ?? normalized;
+
+  // Direct synonym lookup
+  const direct = CATEGORY_SYNONYMS[normalized];
+  if (direct) return direct;
+
+  // For long slug-style categories (Predict), scan for keywords
+  if (normalized.length > 20) {
+    for (const [re, canonical] of SLUG_KEYWORD_MAP) {
+      if (re.test(normalized)) return canonical;
+    }
+  }
+
+  return normalized;
 }
 
 function bucketByCategory(markets: MarketInput[]): Map<string, MarketInput[]> {
