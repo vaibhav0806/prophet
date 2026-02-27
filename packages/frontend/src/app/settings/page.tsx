@@ -1,9 +1,80 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProfile, useUpdateConfig } from '@/hooks/use-platform-api'
 import { useAuth } from '@/hooks/use-auth'
+
+/* ─── Custom Select ─── */
+
+function CustomSelect<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T
+  options: readonly { label: string; value: T }[]
+  onChange: (value: T) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selected = options.find((o) => o.value === value)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`
+          w-full flex items-center justify-between bg-[#191C24] border rounded-lg px-3.5 py-2.5 text-sm text-left
+          transition-colors cursor-pointer
+          ${open
+            ? 'border-[#00D4FF]/50 ring-1 ring-[#00D4FF]/20'
+            : 'border-[#262D3D] hover:border-[#3D4350]'
+          }
+        `}
+      >
+        <span>{selected?.label ?? '—'}</span>
+        <svg
+          className={`w-4 h-4 text-[#6B7280] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-[#262D3D] bg-[#141720] shadow-xl shadow-black/40 overflow-hidden">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={`
+                w-full text-left px-3.5 py-2.5 text-sm transition-colors
+                ${opt.value === value
+                  ? 'bg-[#00D4FF]/10 text-[#00D4FF]'
+                  : 'text-[#E0E2E9] hover:bg-[#1C2030]'
+                }
+              `}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const DURATION_OPTIONS = [
   { label: '1 hour', value: '3600000' },
@@ -332,32 +403,22 @@ export default function SettingsPage() {
                 <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Trading Duration
                 </label>
-                <select
+                <CustomSelect
                   value={tradingDuration}
-                  onChange={(e) => { setTradingDuration(e.target.value); markDirty() }}
-                  className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors appearance-none cursor-pointer"
-                >
-                  {DURATION_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  options={DURATION_OPTIONS}
+                  onChange={(v) => { setTradingDuration(v); markDirty() }}
+                />
                 <p className="text-xs text-gray-600 mt-1.5">How long the agent trades per session</p>
               </div>
               <div>
                 <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Market Resolution Window
                 </label>
-                <select
+                <CustomSelect
                   value={maxResolutionDays === null ? '' : String(maxResolutionDays)}
-                  onChange={(e) => { setMaxResolutionDays(e.target.value === '' ? null : Number(e.target.value)); markDirty() }}
-                  className="w-full bg-[#191C24] border border-[#262D3D] rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#00D4FF]/50 focus:ring-1 focus:ring-[#00D4FF]/20 transition-colors appearance-none cursor-pointer"
-                >
-                  {RESOLUTION_OPTIONS.map((opt) => (
-                    <option key={String(opt.value)} value={opt.value === null ? '' : String(opt.value)}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={RESOLUTION_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value === null ? '' : String(opt.value) }))}
+                  onChange={(v) => { setMaxResolutionDays(v === '' ? null : Number(v)); markDirty() }}
+                />
                 <p className="text-xs text-gray-600 mt-1.5">Only trade markets that resolve within this window</p>
               </div>
             </div>
