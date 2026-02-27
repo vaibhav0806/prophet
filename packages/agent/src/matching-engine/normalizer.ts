@@ -98,6 +98,38 @@ export const ENTITY_ALIASES: Record<string, string> = {
   gc: "gold",
   spx: "s&p 500",
   // NBA team aliases (nickname → canonical full name)
+  // Full names as identity mappings prevent double-expansion (e.g., "Sacramento Kings" → "sacramento kings" stays intact)
+  "atlanta hawks": "atlanta hawks",
+  "boston celtics": "boston celtics",
+  "brooklyn nets": "brooklyn nets",
+  "charlotte hornets": "charlotte hornets",
+  "chicago bulls": "chicago bulls",
+  "cleveland cavaliers": "cleveland cavaliers",
+  "dallas mavericks": "dallas mavericks",
+  "denver nuggets": "denver nuggets",
+  "detroit pistons": "detroit pistons",
+  "golden state warriors": "golden state warriors",
+  "houston rockets": "houston rockets",
+  "indiana pacers": "indiana pacers",
+  "los angeles clippers": "los angeles clippers",
+  "los angeles lakers": "los angeles lakers",
+  "memphis grizzlies": "memphis grizzlies",
+  "miami heat": "miami heat",
+  "milwaukee bucks": "milwaukee bucks",
+  "minnesota timberwolves": "minnesota timberwolves",
+  "new orleans pelicans": "new orleans pelicans",
+  "new york knicks": "new york knicks",
+  "oklahoma city thunder": "oklahoma city thunder",
+  "orlando magic": "orlando magic",
+  "philadelphia 76ers": "philadelphia 76ers",
+  "phoenix suns": "phoenix suns",
+  "portland trail blazers": "portland trail blazers",
+  "sacramento kings": "sacramento kings",
+  "san antonio spurs": "san antonio spurs",
+  "toronto raptors": "toronto raptors",
+  "utah jazz": "utah jazz",
+  "washington wizards": "washington wizards",
+  // Short nicknames → full name
   "hawks": "atlanta hawks",
   "celtics": "boston celtics",
   "nets": "brooklyn nets",
@@ -153,9 +185,16 @@ export function applyEntityAliases(s: string): string {
     s = s.replace(_multiWordAliasRegex, (match) => ENTITY_ALIASES[match] ?? match);
   }
 
-  // Second pass: single-word aliases
+  // Second pass: single-word aliases (skip if expansion already present in string)
   const words = s.split(/\s+/);
-  return words.map((w) => ENTITY_ALIASES[w] ?? w).join(" ");
+  return words.map((w) => {
+    const alias = ENTITY_ALIASES[w];
+    if (!alias || alias === w) return w;
+    // Don't expand if the full alias value already appears in the string
+    // (prevents "sacramento kings" → "sacramento sacramento kings")
+    if (alias.includes(" ") && s.includes(alias)) return w;
+    return alias;
+  }).join(" ");
 }
 
 let _multiWordAliasRegex: RegExp | null = null;

@@ -44,10 +44,14 @@ export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: "fdv-above",    regex: /(?:will )?(.+?) (?:fdv|market cap(?: \(fdv\))?) (?:be )?(?:above|>)\s*\$?([\d.,]+[bmk]?)/i },
   { name: "token-launch", regex: /(?:will )?(.+?) launch a token by (.+)/i },
   { name: "price-target", regex: /(?:will )?(.+?) (?:hit|reach|break|dip to) ((?:\((?:low|high)\) )?\$?[\d.,]+[bmk]?)/i },
+  // Up/Down directional markets — must be before win-comp to avoid "Up or Down" matching "win"
+  { name: "up-or-down",  regex: /(\w+)(?:\/\w+)?\s+up or down[\s\-]*(?:on\s+|hourly\s+)?(?:\(?)?(.+)/i },
+  // Sports matchup — must be before win-comp so "Who will win: X vs Y" is parsed as matchup, not win-comp
+  { name: "matchup",     regex: /(?:who will win[:\s]+|(?:nba|nfl|mlb|nhl|lpl|lck|lec|lcs|lcp|cblol|kpl|dota2?(?:\s*-\s*\w+)?|valorant(?:\s*-\s*\w+(?:\s+\w+)*)?):\s+)(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.*)?$/i },
   { name: "win-comp",     regex: /(?:will )?(.+?) win (.+)/i },
   { name: "out-as",       regex: /(?:will )?(.+?) (?:come )?out as (.+)/i },
   { name: "ipo-by",       regex: /(?:will )?(.+?) ipo by (.+)/i },
-  // Phase 2 additions — appended after existing patterns to preserve match priority
+  // Phase 2 additions
   { name: "happen-by",    regex: /(?:will )?(.+?) (?:happen|occur) by (.+)/i },
   { name: "mcap-above",   regex: /(?:will )?(.+?) market cap (?:be )?(?:above|>)\s*\$?([\d.,]+[bmk]?)/i },
   { name: "tvl-above",    regex: /(?:will )?(.+?) tvl (?:be )?above \$?([\d.,]+[bmk]?)/i },
@@ -60,11 +64,6 @@ export const TEMPLATE_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: "depeg-by",    regex: /(?:will )?(.+?) depeg (?:by|before) (.+)/i },
   { name: "acquire-by",  regex: /(?:will )?(.+?) acquire (.+)/i },
   { name: "return-by",   regex: /(?:will )?(.+?) return (?:by |before )(.+)/i },
-  // Up/Down directional markets (Opinion: "Bitcoin Up or Down on Feb 27", Predict: "BTC/USD Up or Down - Feb 27")
-  { name: "up-or-down",  regex: /(\w+)(?:\/\w+)?\s+up or down[\s\-]*(?:on\s+|hourly\s+)?(?:\(?)?(.+)/i },
-  // Sports matchup: "Who will win: Team A vs Team B" or "NBA: Team A vs Team B (date)"
-  // Requires either "Who will win" prefix OR a league prefix to avoid false positives
-  { name: "matchup",     regex: /(?:who will win[:\s]+|(?:nba|nfl|mlb|nhl|lpl|lck|lec|lcs|lcp|cblol|kpl|dota2?(?:\s*-\s*\w+)?|valorant(?:\s*-\s*\w+(?:\s+\w+)*)?):\s+)(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.*)?$/i },
 ];
 
 // ---------------------------------------------------------------------------
