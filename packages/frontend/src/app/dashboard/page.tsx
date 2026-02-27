@@ -20,7 +20,7 @@ import { ProtocolRoute } from '@/components/protocol-logos'
 function Metric({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">{label}</div>
+      <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">{label}</div>
       {children}
     </div>
   )
@@ -31,7 +31,7 @@ function Metric({ label, children }: { label: string; children: React.ReactNode 
 function SectionLine({ label, right }: { label: string; right?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
       <div className="flex-1 h-px bg-[#1C2030]" />
       {right}
     </div>
@@ -70,7 +70,7 @@ const STATUS_CLS: Record<string, string> = {
 function Badge({ status }: { status: string }) {
   const cls = STATUS_CLS[status.toUpperCase()] || STATUS_CLS.CLOSED
   return (
-    <span className={`inline-block text-[10px] px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border ${cls}`}>
+    <span className={`inline-block text-xs px-1.5 py-px rounded font-mono font-medium uppercase tracking-wider border ${cls}`}>
       {status}
     </span>
   )
@@ -166,7 +166,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Dashboard</h1>
+      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Dashboard</h1>
 
       {isLoading ? <DashboardSkeleton /> : (
         <div className="space-y-7">
@@ -201,11 +201,11 @@ export default function DashboardPage() {
                 {agent?.running ? 'ONLINE' : 'OFFLINE'}
               </span>
               {agent?.running && (
-                <span className="text-[11px] font-mono text-[#3D4350]">{formatUptime(agent.uptime)}</span>
+                <span className="text-xs font-mono text-[#6B7280]">{formatUptime(agent.uptime)}</span>
               )}
             </div>
 
-            <div className="sm:ml-auto flex items-center gap-3 text-[11px] font-mono text-[#3D4350]">
+            <div className="sm:ml-auto flex items-center gap-3 text-xs font-mono text-[#6B7280]">
               {agent?.tradesExecuted !== undefined && <span>{agent.tradesExecuted} exec</span>}
               {agent?.lastScan && (
                 <span title={formatRelativeTime(agent.lastScan / 1000).full}>
@@ -232,7 +232,7 @@ export default function DashboardPage() {
                 {formatUSD(balance)}
               </div>
               {wallet?.address && (
-                <div className="text-[10px] font-mono text-[#262D3D] mt-0.5">{truncateAddress(wallet.address, 4)}</div>
+                <div className="text-xs font-mono text-[#4B5563] mt-0.5">{truncateAddress(wallet.address, 4)}</div>
               )}
             </Metric>
 
@@ -265,11 +265,11 @@ export default function DashboardPage() {
               right={
                 <div className="flex items-center gap-3">
                   {(marketsData?.opportunities?.length ?? 0) > 0 && (
-                    <span className="text-[11px] font-mono text-[#3D4350]">
+                    <span className="text-xs font-mono text-[#6B7280]">
                       {marketsData!.opportunities.length} active
                     </span>
                   )}
-                  <Link href="/markets" className="text-[11px] text-[#3D4350] hover:text-[#00D4FF] transition-colors">
+                  <Link href="/markets" className="text-xs text-[#6B7280] hover:text-[#00D4FF] transition-colors">
                     View all &rarr;
                   </Link>
                 </div>
@@ -278,14 +278,14 @@ export default function DashboardPage() {
 
             {topOpps.length === 0 ? (
               <div className="py-8 text-center">
-                <div className="text-xs font-mono text-[#262D3D]">NO ACTIVE SPREADS</div>
-                <div className="text-[11px] text-[#1C2030] mt-1">Waiting for scanner</div>
+                <div className="text-xs font-mono text-[#4B5563]">NO ACTIVE SPREADS</div>
+                <div className="text-xs text-[#3D4350] mt-1">Waiting for scanner</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-[10px] text-[#3D4350] uppercase tracking-widest">
+                    <tr className="text-xs text-[#6B7280] uppercase tracking-widest">
                       <th className="pb-2 pl-1 text-left font-medium w-6">#</th>
                       <th className="pb-2 text-left font-medium">Market</th>
                       <th className="pb-2 text-left font-medium">Route</th>
@@ -306,7 +306,7 @@ export default function DashboardPage() {
                             hover:bg-[#191C24]/40 ${i === 0 ? 'row-glow' : ''}
                           `}
                         >
-                          <td className="py-2.5 pl-1 font-mono text-[11px] text-[#262D3D]">{i + 1}</td>
+                          <td className="py-2.5 pl-1 font-mono text-xs text-[#4B5563]">{i + 1}</td>
                           <td className="py-2.5 pr-4">
                             <span className="text-[#E0E2E9] truncate block max-w-[320px]" title={opp.title ?? opp.marketId}>
                               {opp.title || truncateAddress(opp.marketId)}
@@ -318,10 +318,10 @@ export default function DashboardPage() {
                           <td className="py-2.5 pr-1">
                             <SpreadIndicator bps={opp.spreadBps} best={i === 0} />
                           </td>
-                          <td className="py-2.5 text-right font-mono tabular-nums text-[#22C55E]/70">
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#22C55E]">
                             {formatUSD(profit)}
                           </td>
-                          <td className="py-2.5 text-right font-mono tabular-nums text-[#3D4350]">
+                          <td className="py-2.5 text-right font-mono tabular-nums text-[#6B7280]">
                             {formatUSD(cost)}
                           </td>
                         </tr>
@@ -339,7 +339,7 @@ export default function DashboardPage() {
               label="Recent Trades"
               right={
                 trades.length > 0 ? (
-                  <Link href="/trades" className="text-[11px] text-[#3D4350] hover:text-[#00D4FF] transition-colors">
+                  <Link href="/trades" className="text-xs text-[#6B7280] hover:text-[#00D4FF] transition-colors">
                     View all &rarr;
                   </Link>
                 ) : undefined
@@ -348,14 +348,14 @@ export default function DashboardPage() {
 
             {trades.length === 0 ? (
               <div className="py-8 text-center">
-                <div className="text-xs font-mono text-[#262D3D]">AWAITING EXECUTION</div>
-                <div className="text-[11px] text-[#1C2030] mt-1">Trades appear after agent runs</div>
+                <div className="text-xs font-mono text-[#4B5563]">AWAITING EXECUTION</div>
+                <div className="text-xs text-[#3D4350] mt-1">Trades appear after agent runs</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-[10px] text-[#3D4350] uppercase tracking-widest">
+                    <tr className="text-xs text-[#6B7280] uppercase tracking-widest">
                       <th className="pb-2 text-left font-medium">Market</th>
                       <th className="pb-2 text-left font-medium">Status</th>
                       <th className="pb-2 text-right font-medium">Cost</th>
@@ -389,7 +389,7 @@ export default function DashboardPage() {
                             {formatUSD(t.expectedPayout)}
                           </td>
                           <td className="py-2.5 text-right font-mono tabular-nums text-[#E0E2E9]">
-                            {t.spreadBps}<span className="text-[#3D4350] text-[11px]">&thinsp;bps</span>
+                            {t.spreadBps}<span className="text-[#6B7280] text-xs">&thinsp;bps</span>
                           </td>
                           <td className="py-2.5 text-right font-mono tabular-nums font-medium">
                             {t.pnl !== null ? (
@@ -397,10 +397,10 @@ export default function DashboardPage() {
                                 {t.pnl >= 0 ? '+' : ''}{formatUSD(t.pnl)}
                               </span>
                             ) : (
-                              <span className="text-[#262D3D]">&mdash;</span>
+                              <span className="text-[#4B5563]">&mdash;</span>
                             )}
                           </td>
-                          <td className="py-2.5 text-right font-mono text-[11px] text-[#3D4350]" title={time.full}>
+                          <td className="py-2.5 text-right font-mono text-xs text-[#6B7280]" title={time.full}>
                             {time.relative}
                           </td>
                         </tr>
@@ -413,14 +413,14 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Footer status ── */}
-          <div className="flex items-center gap-1.5 text-[10px] font-mono text-[#262D3D] pt-1">
+          <div className="flex items-center gap-1.5 text-xs font-mono text-[#4B5563] pt-1">
             <span className="w-1 h-1 rounded-full bg-[#00D4FF]/25 pulse-dot" />
             <span>{marketsData?.quoteCount ?? 0} quotes</span>
-            <span className="text-[#1C2030]">&middot;</span>
+            <span className="text-[#3D4350]">&middot;</span>
             <span>3 protocols</span>
             {marketsData?.updatedAt && (
               <>
-                <span className="text-[#1C2030]">&middot;</span>
+                <span className="text-[#3D4350]">&middot;</span>
                 <span>{formatRelativeTime(marketsData.updatedAt / 1000).relative}</span>
               </>
             )}

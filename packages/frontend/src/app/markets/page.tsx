@@ -98,7 +98,7 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
       <button className="w-full text-left" onClick={() => setOpen(!open)}>
         <div className="flex items-center gap-3 px-3 py-2.5">
           {/* Rank */}
-          <span className="shrink-0 w-5 text-[11px] font-mono text-[#262D3D] text-right tabular-nums">
+          <span className="shrink-0 w-5 text-xs font-mono text-[#4B5563] text-right tabular-nums">
             {rank}
           </span>
 
@@ -111,11 +111,11 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
               {opp.title ?? truncateAddress(opp.marketId, 8)}
             </p>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[11px] font-mono text-[#3D4350]">
+              <span className="text-xs font-mono text-[#6B7280]">
                 {sideA} {fmtPrice(priceA)}
               </span>
-              <span className="text-[11px] text-[#1C2030]">&rarr;</span>
-              <span className="text-[11px] font-mono text-[#3D4350]">
+              <span className="text-xs text-[#3D4350]">&rarr;</span>
+              <span className="text-xs font-mono text-[#6B7280]">
                 {sideB} {fmtPrice(priceB)}
               </span>
             </div>
@@ -125,9 +125,9 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
           <div className="shrink-0 text-right ml-2">
             <div className="text-sm font-mono font-bold tabular-nums leading-tight" style={{ color }}>
               {opp.spreadBps.toLocaleString()}
-              <span className="text-[11px] font-normal text-[#3D4350] ml-0.5">bps</span>
+              <span className="text-xs font-normal text-[#6B7280] ml-0.5">bps</span>
             </div>
-            <div className="text-[11px] font-mono text-[#3D4350] mt-0.5 tabular-nums">
+            <div className="text-xs font-mono text-[#6B7280] mt-0.5 tabular-nums">
               ~{formatUSD(estProfit, 2)} / 100
             </div>
           </div>
@@ -135,7 +135,7 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
           {/* Chevron */}
           <div className="shrink-0 ml-0.5">
             <svg
-              className={`w-3 h-3 text-[#3D4350] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+              className={`w-3 h-3 text-[#6B7280] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -163,13 +163,13 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
             <div className="rounded border p-3" style={{ background: '#0B0D11', borderColor: getProtocol(opp.protocolA).border }}>
               <div className="flex items-center gap-2 mb-2">
                 <ProtocolLogo name={opp.protocolA} size={16} />
-                <span className="text-[11px] text-[#3D4350] uppercase tracking-widest font-medium">{opp.protocolA}</span>
-                <span className="text-[10px] text-[#3D4350] uppercase tracking-widest ml-auto">Buy {sideA}</span>
+                <span className="text-xs text-[#6B7280] uppercase tracking-widest font-medium">{opp.protocolA}</span>
+                <span className="text-xs text-[#6B7280] uppercase tracking-widest ml-auto">Buy {sideA}</span>
               </div>
               <div className="text-xl font-mono font-bold text-[#E8E8E8] tabular-nums">
                 {fmtPrice(priceA)}
               </div>
-              <div className="text-[11px] text-[#3D4350] mt-1 font-mono">
+              <div className="text-xs text-[#6B7280] mt-1 font-mono">
                 Liq: {fmtLiquidity(liqA)}
               </div>
             </div>
@@ -178,13 +178,13 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
             <div className="rounded border p-3" style={{ background: '#0B0D11', borderColor: getProtocol(opp.protocolB).border }}>
               <div className="flex items-center gap-2 mb-2">
                 <ProtocolLogo name={opp.protocolB} size={16} />
-                <span className="text-[11px] text-[#3D4350] uppercase tracking-widest font-medium">{opp.protocolB}</span>
-                <span className="text-[10px] text-[#3D4350] uppercase tracking-widest ml-auto">Buy {sideB}</span>
+                <span className="text-xs text-[#6B7280] uppercase tracking-widest font-medium">{opp.protocolB}</span>
+                <span className="text-xs text-[#6B7280] uppercase tracking-widest ml-auto">Buy {sideB}</span>
               </div>
               <div className="text-xl font-mono font-bold text-[#E8E8E8] tabular-nums">
                 {fmtPrice(priceB)}
               </div>
-              <div className="text-[11px] text-[#3D4350] mt-1 font-mono">
+              <div className="text-xs text-[#6B7280] mt-1 font-mono">
                 Liq: {fmtLiquidity(liqB)}
               </div>
             </div>
@@ -193,25 +193,25 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
           {/* P&L row */}
           <div className="grid grid-cols-4 gap-3 mb-3">
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-widest mb-1">Net Spread</div>
+              <div className="text-xs text-[#6B7280] uppercase tracking-widest mb-1">Net Spread</div>
               <div className="text-[13px] font-mono font-bold tabular-nums" style={{ color }}>
                 {opp.spreadBps} bps
               </div>
             </div>
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-widest mb-1">Gross</div>
-              <div className="text-[13px] font-mono text-[#3D4350] tabular-nums">
+              <div className="text-xs text-[#6B7280] uppercase tracking-widest mb-1">Gross</div>
+              <div className="text-[13px] font-mono text-[#6B7280] tabular-nums">
                 {opp.grossSpreadBps} bps
               </div>
             </div>
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-widest mb-1">Fees</div>
-              <div className="text-[13px] font-mono text-[#3D4350] tabular-nums">
+              <div className="text-xs text-[#6B7280] uppercase tracking-widest mb-1">Fees</div>
+              <div className="text-[13px] font-mono text-[#6B7280] tabular-nums">
                 {feesBps} bps
               </div>
             </div>
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-widest mb-1">Profit / 100</div>
+              <div className="text-xs text-[#6B7280] uppercase tracking-widest mb-1">Profit / 100</div>
               <div className="text-[13px] font-mono font-bold text-[#22C55E] tabular-nums">
                 {formatUSD(estProfit, 2)}
               </div>
@@ -232,7 +232,7 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
                       href={url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-opacity hover:opacity-80 border"
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-opacity hover:opacity-80 border"
                       style={{ color: cfg.color, background: cfg.bg, borderColor: cfg.border }}
                     >
                       <ProtocolLogo name={key} size={12} />
@@ -246,8 +246,8 @@ function MarketCard({ opp, rank }: { opp: Opp; rank: number }) {
               </div>
             )}
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#3D4350] uppercase tracking-widest">Market ID</span>
-              <span className="text-[11px] font-mono text-[#3D4350] truncate">{opp.marketId}</span>
+              <span className="text-xs text-[#6B7280] uppercase tracking-widest">Market ID</span>
+              <span className="text-xs font-mono text-[#6B7280] truncate">{opp.marketId}</span>
             </div>
           </div>
         </div>
@@ -318,28 +318,28 @@ export default function MarketsPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Live Markets</h1>
+      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Live Markets</h1>
 
       {/* Metrics */}
       {data && sorted.length > 0 && (
         <div className="flex flex-wrap items-start gap-x-10 gap-y-4 mb-6">
           <div>
-            <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">Opportunities</div>
+            <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">Opportunities</div>
             <div className="text-xl font-mono font-semibold tabular-nums text-[#E0E2E9]">{sorted.length}</div>
           </div>
           <div>
-            <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">Avg Spread</div>
+            <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">Avg Spread</div>
             <div className="text-xl font-mono font-semibold tabular-nums text-[#E0E2E9]">
-              {avgSpread.toLocaleString()}<span className="text-sm text-[#3D4350] ml-0.5">bps</span>
+              {avgSpread.toLocaleString()}<span className="text-sm text-[#6B7280] ml-0.5">bps</span>
             </div>
           </div>
           <div>
-            <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">Best Profit</div>
+            <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">Best Profit</div>
             <div className="text-xl font-mono font-semibold tabular-nums text-[#22C55E]">{formatUSD(topProfit, 2)}</div>
-            <div className="text-[10px] text-[#262D3D] font-mono mt-0.5">per 100 USDT</div>
+            <div className="text-xs text-[#4B5563] font-mono mt-0.5">per 100 USDT</div>
           </div>
           <div>
-            <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.12em] font-medium mb-1">Last Scan</div>
+            <div className="text-xs text-[#6B7280] uppercase tracking-[0.12em] font-medium mb-1">Last Scan</div>
             <div className="text-xl font-mono font-semibold tabular-nums text-[#E0E2E9]">
               {data.updatedAt ? lastScanLabel(data.updatedAt) : '\u2014'}
             </div>
@@ -347,7 +347,7 @@ export default function MarketsPage() {
           {dataUpdatedAt > 0 && (
             <div className="flex items-center gap-1.5 self-center ml-auto">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00D4FF] pulse-dot" />
-              <span className="text-[11px] font-mono text-[#3D4350]">
+              <span className="text-xs font-mono text-[#6B7280]">
                 {data?.quoteCount ?? 0} quotes
               </span>
             </div>
@@ -359,9 +359,9 @@ export default function MarketsPage() {
       {sorted.length > 0 && (
         <>
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">Spreads</span>
+            <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">Spreads</span>
             <div className="flex-1 h-px bg-[#1C2030]" />
-            <span className="text-[11px] font-mono text-[#3D4350]">{filtered.length} shown</span>
+            <span className="text-xs font-mono text-[#6B7280]">{filtered.length} shown</span>
           </div>
 
           <div className="relative mb-3">
@@ -397,14 +397,14 @@ export default function MarketsPage() {
 
       {!isLoading && sorted.length === 0 && (
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#262D3D]">NO OPPORTUNITIES FOUND</div>
-          <div className="text-[11px] text-[#1C2030] mt-1">Scanner may be starting up -- refreshes every 10 seconds</div>
+          <div className="text-xs font-mono text-[#4B5563]">NO OPPORTUNITIES FOUND</div>
+          <div className="text-xs text-[#3D4350] mt-1">Scanner may be starting up -- refreshes every 10 seconds</div>
         </div>
       )}
 
       {filtered.length === 0 && search && sorted.length > 0 && (
         <div className="py-8 text-center">
-          <div className="text-xs font-mono text-[#262D3D]">
+          <div className="text-xs font-mono text-[#4B5563]">
             No markets matching &ldquo;{search}&rdquo;
           </div>
         </div>

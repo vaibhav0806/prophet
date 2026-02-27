@@ -115,7 +115,7 @@ export function Sidebar() {
               PROPHIT
             </span>
           </Link>
-          <p className="text-[9px] text-[#3D4350] mt-1.5 uppercase tracking-[0.35em] font-medium">Arbitrage Engine</p>
+          <p className="text-[11px] text-[#6B7280] mt-1.5 uppercase tracking-[0.35em] font-medium">Arbitrage Engine</p>
         </div>
 
         <div className="h-px mx-4 bg-gradient-to-r from-[#00D4FF]/15 via-[#00D4FF]/08 to-transparent" />
@@ -148,7 +148,7 @@ export function Sidebar() {
         <div className="px-4 py-4 border-t border-[#1C2030]">
           <button
             onClick={handleLogout}
-            className="w-full text-xs px-3 py-2 rounded-lg text-[#3D4350] hover:text-[#6B7280] hover:bg-white/[0.02] transition-colors text-left uppercase tracking-wider"
+            className="w-full text-xs px-3 py-2 rounded-lg text-[#6B7280] hover:text-[#9CA3AF] hover:bg-white/[0.02] transition-colors text-left uppercase tracking-wider"
           >
             Sign Out
           </button>

@@ -53,7 +53,7 @@ function PositionCard({ pos }: { pos: Position }) {
         </div>
         <span
           className={`
-            text-[11px] px-2.5 py-1 rounded-full font-medium uppercase tracking-wide
+            text-xs px-2.5 py-1 rounded-full font-medium uppercase tracking-wide
             ${pos.closed
               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
               : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
@@ -98,19 +98,19 @@ function PositionCard({ pos }: { pos: Position }) {
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <div className="text-[11px] text-gray-600 uppercase tracking-wide">Shares A</div>
+            <div className="text-xs text-gray-600 uppercase tracking-wide">Shares A</div>
             <div className="font-mono text-sm tabular-nums">{formatValue(pos.sharesA, 6)}</div>
           </div>
           <div>
-            <div className="text-[11px] text-gray-600 uppercase tracking-wide">Shares B</div>
+            <div className="text-xs text-gray-600 uppercase tracking-wide">Shares B</div>
             <div className="font-mono text-sm tabular-nums">{formatValue(pos.sharesB, 6)}</div>
           </div>
           <div>
-            <div className="text-[11px] text-gray-600 uppercase tracking-wide">Cost A</div>
+            <div className="text-xs text-gray-600 uppercase tracking-wide">Cost A</div>
             <div className="font-mono text-sm tabular-nums">{formatValue(pos.costA, 6)}</div>
           </div>
           <div>
-            <div className="text-[11px] text-gray-600 uppercase tracking-wide">Cost B</div>
+            <div className="text-xs text-gray-600 uppercase tracking-wide">Cost B</div>
             <div className="font-mono text-sm tabular-nums">{formatValue(pos.costB, 6)}</div>
           </div>
         </div>
@@ -163,7 +163,7 @@ export default function PositionsPage() {
 
         {/* Vault Balance Card */}
         <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5 mb-6">
-          <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Vault Balance</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Vault Balance</div>
           <div className="text-2xl font-mono font-bold text-emerald-400 tabular-nums">
             {formatOnchain(vaultBalance as bigint | undefined)} <span className="text-sm text-gray-500 font-normal">USDT</span>
           </div>

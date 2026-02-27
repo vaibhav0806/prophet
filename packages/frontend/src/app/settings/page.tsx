@@ -31,7 +31,7 @@ function parseUsdt(raw: string): string {
 function SectionDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <span className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <span className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
       <div className="flex-1 h-px bg-[#1C2030]" />
     </div>
   )
@@ -161,7 +161,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter max-w-2xl">
-      <h1 className="text-xs font-semibold text-[#3D4350] uppercase tracking-[0.15em] mb-5">Settings</h1>
+      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Settings</h1>
 
       {isLoading && <SkeletonSettings />}
 
@@ -172,7 +172,7 @@ export default function SettingsPage() {
             <SectionDivider label="Trade Sizing" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Minimum Trade Size
                   <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                 </label>
@@ -190,7 +190,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Maximum Trade Size
                   <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                 </label>
@@ -208,7 +208,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Safety Circuit Breaker
                   <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                 </label>
@@ -236,7 +236,7 @@ export default function SettingsPage() {
             {/* Spread slider */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">
+                <label className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">
                   Minimum Profit Margin
                 </label>
                 <span className="text-sm font-mono tabular-nums text-[#00D4FF]">
@@ -252,7 +252,7 @@ export default function SettingsPage() {
                 onChange={(e) => { setMinSpreadPct(parseFloat(e.target.value)); markDirty() }}
                 className="w-full h-1.5 rounded-full cursor-pointer"
               />
-              <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+              <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>0.5%</span>
                 <span>10%</span>
               </div>
@@ -261,7 +261,7 @@ export default function SettingsPage() {
             {/* Max spread slider */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">
+                <label className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">
                   Maximum Profit Margin
                 </label>
                 <span className="text-sm font-mono tabular-nums text-[#00D4FF]">
@@ -277,7 +277,7 @@ export default function SettingsPage() {
                 onChange={(e) => { setMaxSpreadPct(parseFloat(e.target.value)); markDirty() }}
                 className="w-full h-1.5 rounded-full cursor-pointer"
               />
-              <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+              <div className="flex justify-between text-xs text-gray-600 mt-1">
                 <span>1%</span>
                 <span>10%</span>
               </div>
@@ -286,7 +286,7 @@ export default function SettingsPage() {
 
             {/* Max total trades */}
             <div>
-              <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+              <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                 Maximum Total Trades
               </label>
               <div className="flex items-center gap-4">
@@ -329,7 +329,7 @@ export default function SettingsPage() {
             <SectionDivider label="Timing" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Trading Duration
                 </label>
                 <select
@@ -344,7 +344,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-gray-600 mt-1.5">How long the agent trades per session</p>
               </div>
               <div>
-                <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+                <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
                   Market Resolution Window
                 </label>
                 <select
