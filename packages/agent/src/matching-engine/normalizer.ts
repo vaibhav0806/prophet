@@ -433,7 +433,7 @@ export const ENTITY_ALIASES: Record<string, string> = {
   "washington commanders": "washington commanders",
   // NFL nicknames
   // "cardinals" omitted — ambiguous (NFL Arizona Cardinals vs MLB St Louis Cardinals)
-  falcons: "atlanta falcons",
+  // "falcons" omitted — ambiguous (NFL Atlanta Falcons vs esports Team Falcons)
   ravens: "baltimore ravens",
   bills: "buffalo bills",
   bears: "chicago bears",
