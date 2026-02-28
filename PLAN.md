@@ -4,7 +4,7 @@
 
 Autonomous AI agent that continuously scans prediction markets on BNB Chain (Predict.fun, Probable, Opinion Labs) for price discrepancies on the same events, executes delta-neutral arbitrage trades to capture risk-free profit — all from a multi-tenant SaaS dashboard.
 
-## Current Status (Feb 27, 2026)
+## Current Status (Feb 28, 2026)
 
 ### What's Built & Working
 
@@ -23,11 +23,14 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Pre
 | **Arb Detection** | Done | Cross-protocol spread detection with fee accounting (Predict 2%, Probable 1.75%, Opinion 2%) |
 | **Sequential Executor** | Done | Unreliable leg first → reliable leg, fill polling, partial fill unwind |
 | **Spread Guardrails** | Done | minSpreadBps (50), maxSpreadBps (400), daily loss limit |
-| **Frontend Dashboard** | Done | Markets browser, trades, agent control, wallet, protocol branding |
+| **Frontend Dashboard** | Done | Markets browser, trades, agent control, wallet, settings, onboarding |
 | **Market Titles & Links** | Done | Titles from discovery, per-platform links (Predict, Probable, Opinion) |
 | **Trade Enrichment** | Done | Trades JOIN markets for title/category/resolvesAt |
 | **Nonce Persistence** | Done | Restored on restart, auto-incremented per order |
 | **Graceful Shutdown** | Done | SIGTERM/SIGINT cancels open orders, flushes state |
+| **Health Endpoint** | Done | `GET /api/health` with rate limit bypass |
+| **Yield Rotation** | Done | Position scoring (risk-adjusted APY), Half-Kelly allocator, rotation suggestions |
+| **Architecture Doc** | Done | Comprehensive `ARCHITECTURE.md` covering all subsystems |
 
 ### Production Results (Feb 27, 2026)
 
@@ -54,151 +57,39 @@ Autonomous AI agent that continuously scans prediction markets on BNB Chain (Pre
 
 ## Architecture
 
-### Packages
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full deep-dive covering all subsystems (scanner, matching engine, arbitrage detection, execution, CLOB clients, adapters, liquidity checks, yield rotation, platform API, wallet infrastructure, frontend, database schema, on-chain addresses).
+
+### Quick Reference
 
 ```
 packages/
   agent/         Arbitrage engine (discovery, matching, detection, execution)
   platform/      Multi-tenant API (auth, agent mgmt, wallet custody, scanner)
-  frontend/      Next.js dashboard (markets, trades, agent control, wallet)
+  frontend/      Next.js 14 dashboard (markets, trades, agent control, wallet)
   shared/        Drizzle ORM schema, shared types, migrations
   contracts/     Solidity vault + protocol adapters (Foundry)
 ```
 
-### Agent Core
+### Core Loop
 
 ```
-Providers (fetch live orderbook quotes every 5s)
-  ├── PredictProvider    — Predict.fun REST API
-  ├── ProbableProvider   — Probable REST API (dead market tracking, shouldRetry)
-  └── OpinionProvider    — Opinion Labs REST API
-
-Matching Engine (packages/agent/src/matching-engine/)
-  ├── normalizer.ts      — Unicode confusables, NFKD, year stripping, article stripping
-  └── index.ts           — Jaccard + Dice similarity, template extraction, 3-pass matchMarkets()
-
-Discovery Pipeline (packages/agent/src/discovery/pipeline.ts)
-  └── runDiscovery()     — Fetch all 3 platforms → matchMarkets() → market/title/link maps
-
-Arbitrage Detector (packages/agent/src/arbitrage/detector.ts)
-  └── detectArbitrage()  — Cross-protocol spread detection, fee-adjusted, liquidity-checked
-
-CLOB Clients (direct EOA order placement)
-  ├── PredictClobClient  — JWT auth, EIP-712 signed orders
-  ├── ProbableClobClient — HMAC L2 auth, Safe proxy, nonce persistence
-  └── OpinionClobClient  — API key auth, ERC-1155 settlement
-
-Executor (packages/agent/src/execution/executor.ts)
-  └── RELIABLE_PLATFORMS — Unreliable leg first, reliable leg if first fills
-```
-
-### Platform API
-
-```
-Hono :4000
-  ├── POST /api/auth/register|login   — Privy token auth
-  ├── GET  /api/markets               — Live opportunities (title, links, spreads)
-  ├── GET  /api/trades                — Trade history (JOIN markets for title/category)
-  ├── POST /api/agent/start|stop      — Per-user agent lifecycle
-  ├── GET  /api/agent/status          — Running state, trades executed, uptime
-  ├── PATCH /api/me/config            — Update trade thresholds
-  ├── GET  /api/wallet                — Balances, deposit history
-  └── POST /api/wallet/withdraw       — Privy-signed withdrawal
-
-ScannerService
-  └── Fetches quotes from all 3 providers every 5s → QuoteStore
-
-AgentManager
-  └── Per-user AgentInstance with CLOB clients (Predict, Probable, Opinion)
-```
-
-### Frontend Pages
-
-| Route | Description |
-|-------|-------------|
-| `/dashboard` | Agent overview, recent trades, PnL |
-| `/markets` | Live market browser with protocol colors, links, prices, spread indicators |
-| `/trades` | Trade history with market titles, expandable leg details |
-| `/agent` | Start/stop agent, configure min/max spread, trade size |
-| `/wallet` | USDT/BNB balances, deposit address, withdrawal requests |
-
-### Protocol Details
-
-| Protocol | API Base | Auth | Fees | Pagination |
-|----------|----------|------|------|------------|
-| Predict.fun | `api.predict.fun` | API key + JWT | 200 bps | Cursor-based |
-| Probable | `api.probable.markets` / `market-api.probable.markets` | Public (read) / HMAC L2 (write) | 175 bps | Offset, limit 100 |
-| Opinion Labs | `openapi.opinion.trade/openapi` | `apikey` header | 200 bps | Single page |
-
-All use Gnosis CTF (ERC-1155 outcome tokens) on BSC mainnet (chain 56).
-
-### Contract Addresses (BSC Mainnet)
-
-| Contract | Probable | Predict.fun | Opinion |
-|----------|----------|-------------|---------|
-| CTF Token | `0x364d05055614B506e2b9A287E4ac34167204cA83` | `0xC5d01939Af7Ce9Ffc505F0bb36eFeDde7920f2dc` | `0xAD1a38cEc043e70E83a3eC30443dB285ED10D774` |
-| CTF Exchange | `0xf99f5367ce708c66f0860b77b4331301a5597c86` | `0x8BC070BEdAB741406F4B1Eb65A72bee27894B689` | `0xAD1a38cEc043e70E83a3eC30443dB285ED10D774` |
-| USDT | `0x55d398326f99059fF775485246999027B3197955` | same | same |
-
----
-
-## Core Mechanism
-
-### Cross-Market Arbitrage
-
-```
-Real example (Feb 2026 — Portugal wins FIFA WC):
-
-  Predict.fun:  YES = $0.068   NO = $0.932
-  Probable:     YES = $0.109   NO = $0.899
-
-  Strategy: Buy YES on Predict ($0.068) + Buy NO on Probable ($0.899)
-  Total cost: $0.967
-  Fees: Predict 2% on winning leg ≈ $0.019
-  Guaranteed payout: $1.00
-  Net profit: $0.014 (1.5% ROI)
-```
-
-### Detection Formula
-
-```
-grossSpreadBps = (1.0 - (bestYes + bestNo)) * 10000
-worstCaseFee = max(feeIfYesWins, feeIfNoWins)
-spreadBps = grossSpreadBps - feeBps    (net after fees)
-
-If spreadBps in [minSpreadBps, maxSpreadBps]:
-  EXECUTE (unreliable leg first)
-```
-
-### Matching Engine
-
-```
-Pass 1: conditionId exact match        (instant, but rarely matches across platforms)
-Pass 2: Template extraction + match    ("Will X launch token by Y?" → entity:params key)
-Pass 3: Composite similarity ≥ 0.85    (max of Jaccard + Dice, with template guard)
-
-Normalization pipeline:
-  1. Replace Unicode confusables (Cyrillic Ʌ→a, Ͻ→c, и→n)
-  2. NFKD decomposition + strip combining marks
-  3. Collapse digit separators (100,000 → 100000)
-  4. Lowercase, strip punctuation
-  5. Remove current-year tokens
-  6. Collapse whitespace
+Scanner (5s) → Providers fetch orderbooks → QuoteStore
+  → AgentInstance.scan() → detectArbitrage(quotes)
+  → Filter: 50-400 bps, dedup, daily loss limit
+  → Execute: unreliable leg (Probable/Opinion) FOK first
+  → If filled: reliable leg (Predict) FOK
+  → Persist trade to DB, track position
 ```
 
 ---
 
 ## Test Results
 
-| Suite | Tests | Status |
-|-------|-------|--------|
-| Matching engine | 58 | All passing |
-| Discovery pipeline | 27 | All passing |
-| CLOB clients | ~20 | All passing |
-| Executor | ~15 | All passing |
-| Arbitrage detector | ~10 | All passing |
-| Frontend | ~11 | All passing |
-| **Total** | **~140+** | **All passing** |
+| Package | Tests | Status |
+|---------|-------|--------|
+| Agent (matching, discovery, CLOB, executor, detector, providers, yield) | 450 | 5 failing (probable-client Safe validation) |
+| Frontend (hooks, formatting, API) | 52 | All passing |
+| **Total** | **502** | |
 
 ---
 
@@ -236,6 +127,14 @@ Normalization pipeline:
 - [x] Frontend trades page (market titles, expandable legs, PnL fix)
 - [x] minSpreadBps lowered to 50 bps (was 100)
 
+### Phase 4: Yield, Health, Architecture
+- [x] `/api/health` endpoint with rate limit bypass
+- [x] Yield rotation module (scorer, allocator, rotator)
+- [x] Position scoring by risk-adjusted annualized return
+- [x] Half-Kelly capital allocation for new opportunities
+- [x] Rotation suggestions with exit cost analysis
+- [x] Comprehensive ARCHITECTURE.md documentation
+
 ### Incident Response
 - [x] Feb 25 incident: deposit watcher bigint overflow, Probable isFillOrKill bug
 - [x] Predict LIMIT order precision fixes (amount rounding, tick sizes)
@@ -252,9 +151,9 @@ Normalization pipeline:
 |---|------|--------|
 | 1 | Reduce near-miss log noise (200+ entries per scan) | 1h |
 | 2 | Remove debug match-detail logging from pipeline | 15min |
-| 3 | Add `/api/health` endpoint with provider status | 1h |
-| 4 | Market resolution monitoring (auto-redeem settled positions) | 4h |
-| 5 | Position expiration handling (near-expiry warnings) | 2h |
+| 3 | Market resolution monitoring (auto-redeem settled positions) | 4h |
+| 4 | Position expiration handling (near-expiry warnings) | 2h |
+| 5 | Fix 5 failing probable-client Safe validation tests | 1h |
 
 ### Medium Priority
 
@@ -275,9 +174,8 @@ Normalization pipeline:
 | 2 | Deploy contracts to BSC mainnet (vault + adapters) |
 | 3 | Multi-sig ownership for vault |
 | 4 | XO Market / Bento adapters |
-| 5 | Position yield rotation (Kelly criterion rebalancing) |
-| 6 | CSP headers on frontend |
-| 7 | Docker multi-stage builds for production |
+| 5 | CSP headers on frontend |
+| 6 | Docker multi-stage builds for production |
 
 ---
 

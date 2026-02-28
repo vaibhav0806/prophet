@@ -140,13 +140,15 @@ src/
 
 ### Frontend Pages
 
-| Route        | Description                                      |
-|--------------|--------------------------------------------------|
-| `/dashboard` | Agent overview, recent trades, PnL               |
-| `/markets`   | Live market browser with protocol links and prices|
-| `/trades`    | Trade history with expandable leg details         |
-| `/agent`     | Start/stop agent, configure thresholds            |
-| `/wallet`    | USDT/BNB balances, deposit address, withdrawals   |
+| Route          | Description                                        |
+|----------------|--------------------------------------------------  |
+| `/login`       | Privy sign-in (email/social)                       |
+| `/onboarding`  | 4-step wizard: welcome, fund, configure, launch    |
+| `/dashboard`   | Agent control, metrics, live spreads, recent trades |
+| `/markets`     | Searchable market browser with protocol links       |
+| `/trades`      | Trade history with expandable leg details           |
+| `/wallet`      | USDT/BNB balances, deposit address, withdrawals     |
+| `/settings`    | Trade sizing, profit margins, daily loss limit      |
 
 ## Matching Engine
 
@@ -159,6 +161,8 @@ Markets across platforms use different titles for the same event. The matching e
 Normalization handles Unicode confusables (Cyrillic/Greek lookalikes), NFKD decomposition, year stripping, and digit separator collapsing.
 
 Production results: **102 matches** from ~2,500 markets across 3 platforms, 0 false positives.
+
+For the full deep-dive on every subsystem, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Execution Model
 
@@ -194,15 +198,17 @@ Key environment variables:
 
 ```bash
 pnpm test                    # all packages
-pnpm --filter agent test     # agent only (85+ tests)
-pnpm --filter frontend test  # frontend only
+pnpm --filter agent test     # agent only (450+ tests)
+pnpm --filter frontend test  # frontend only (52 tests)
 ```
 
 Key test suites:
-- `matching-engine.test.ts` — 58 tests (normalization, similarity, template extraction, regression cases)
-- `discovery.test.ts` — 27 tests (pipeline, multi-platform matching)
+- `matching-engine.test.ts` — Normalization, similarity, template extraction, regression cases
+- `discovery.test.ts` — Pipeline, multi-platform matching
 - `executor-clob.test.ts` — Sequential execution, fill polling, partial fill handling
 - `detector.test.ts` — Spread detection, fee accounting
+- `providers.test.ts` — Quote fetching, liquidity calculation
+- `yield.test.ts` — Position scoring, Kelly allocation, rotation
 
 ## Tech Stack
 
@@ -210,7 +216,7 @@ Key test suites:
 |----------|----------------------------------------------------------|
 | Agent    | Node.js 22, TypeScript, viem                             |
 | Platform | Hono, Drizzle ORM, PostgreSQL, Privy SDK                 |
-| Frontend | Next.js 15, React 19, TanStack Query, Tailwind CSS      |
+| Frontend | Next.js 14, React 18, TanStack Query, Tailwind CSS      |
 | Auth     | Privy (embedded wallets, delegated signing)              |
 | Chain    | BSC mainnet (56), Gnosis CTF (ERC-1155)                  |
 
