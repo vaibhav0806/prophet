@@ -28,7 +28,7 @@ function SummaryCard({
         }
       `}
     >
-      <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-2">{label}</div>
+      <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">{label}</div>
       <div>{children}</div>
     </div>
   )

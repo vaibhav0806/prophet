@@ -37,22 +37,22 @@ function StepIndicator({ current, steps }: { current: number; steps: readonly st
             <div className="flex flex-col items-center gap-1.5">
               <div
                 className={`
-                  w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-mono font-bold
+                  w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono font-bold
                   transition-all duration-300 border
                   ${
                     isActive
                       ? 'border-[#00D4FF] text-[#00D4FF]'
                       : isDone
                         ? 'border-[#00D4FF]/30 text-[#00D4FF]'
-                        : 'border-[#262D3D] text-[#3D4350]'
+                        : 'border-[#262D3D] text-[#6B7280]'
                   }
                 `}
               >
                 {isDone ? '✓' : i + 1}
               </div>
               <span
-                className={`text-[11px] uppercase tracking-wider ${
-                  isActive ? 'text-[#00D4FF]' : isDone ? 'text-gray-500' : 'text-[#3D4350]'
+                className={`text-xs uppercase tracking-wider ${
+                  isActive ? 'text-[#00D4FF]' : isDone ? 'text-gray-500' : 'text-[#6B7280]'
                 }`}
               >
                 {label}
@@ -123,7 +123,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
       <div className="rounded border border-[#1C2030] bg-[#111318] p-6 text-left space-y-4 mb-8">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 text-xs font-mono text-[#3D4350] flex-shrink-0 w-4 text-right">1.</span>
+          <span className="mt-0.5 text-xs font-mono text-[#6B7280] flex-shrink-0 w-4 text-right">1.</span>
           <div>
             <div className="text-sm font-medium text-gray-200">Scan for spreads</div>
             <div className="text-[13px] text-gray-500 mt-0.5">
@@ -133,7 +133,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
           </div>
         </div>
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 text-xs font-mono text-[#3D4350] flex-shrink-0 w-4 text-right">2.</span>
+          <span className="mt-0.5 text-xs font-mono text-[#6B7280] flex-shrink-0 w-4 text-right">2.</span>
           <div>
             <div className="text-sm font-medium text-gray-200">Execute arbitrage</div>
             <div className="text-[13px] text-gray-500 mt-0.5">
@@ -143,7 +143,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
           </div>
         </div>
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 text-xs font-mono text-[#3D4350] flex-shrink-0 w-4 text-right">3.</span>
+          <span className="mt-0.5 text-xs font-mono text-[#6B7280] flex-shrink-0 w-4 text-right">3.</span>
           <div>
             <div className="text-sm font-medium text-gray-200">Collect profits on resolution</div>
             <div className="text-[13px] text-gray-500 mt-0.5">
@@ -185,7 +185,7 @@ function FundStep({ onNext }: { onNext: () => void }) {
       <div className="rounded border border-[#1C2030] bg-[#111318] p-6 space-y-5">
         {/* Deposit address */}
         <div>
-          <div className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <div className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Deposit Address (BSC)
           </div>
           {isLoading ? (
@@ -206,7 +206,7 @@ function FundStep({ onNext }: { onNext: () => void }) {
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-[#191C24]/60 rounded-lg p-4">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">USDT</span>
+              <span className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">USDT</span>
               {usdtMet && <span className="text-[#00D4FF] text-[13px]">Funded</span>}
             </div>
             {isLoading ? (
@@ -220,14 +220,14 @@ function FundStep({ onNext }: { onNext: () => void }) {
                 ${formatNumber(usdtBalance, 2)}
               </div>
             )}
-            <div className="text-[11px] text-gray-600 mt-1">
+            <div className="text-xs text-gray-600 mt-1">
               Min: ${MIN_USDT.toFixed(2)}
             </div>
           </div>
 
           <div className="bg-[#191C24]/60 rounded-lg p-4">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">BNB</span>
+              <span className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">BNB</span>
               {bnbMet && <span className="text-[#00D4FF] text-[13px]">Funded</span>}
             </div>
             {isLoading ? (
@@ -241,7 +241,7 @@ function FundStep({ onNext }: { onNext: () => void }) {
                 {formatNumber(bnbBalance, 4)}
               </div>
             )}
-            <div className="text-[11px] text-gray-600 mt-1">
+            <div className="text-xs text-gray-600 mt-1">
               Min: {MIN_BNB} BNB
             </div>
           </div>
@@ -337,7 +337,7 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
         {/* Trade size range */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+            <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
               Min Trade Size
               <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
             </label>
@@ -351,7 +351,7 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
             />
           </div>
           <div>
-            <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+            <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
               Max Trade Size
               <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
             </label>
@@ -368,7 +368,7 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
 
         {/* Profit margin */}
         <div>
-          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Min Profit Margin
             <span className="text-gray-600 ml-1 normal-case tracking-normal">
               (% &mdash; {Math.round(Number(minProfitPercent || 0) * 100)} bps)
@@ -387,7 +387,7 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
 
         {/* Max trades */}
         <div>
-          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Max Total Trades
             <span className="text-gray-600 ml-1 normal-case tracking-normal">(leave empty for unlimited)</span>
           </label>
@@ -403,7 +403,7 @@ function ConfigureStep({ onNext }: { onNext: () => void }) {
 
         {/* Resolution window */}
         <div>
-          <label className="block text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
+          <label className="block text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium mb-2">
             Resolution Window
           </label>
           <div className="flex flex-wrap gap-2">
@@ -533,7 +533,7 @@ function ReadyStep() {
 function SummaryRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[11px] text-[#6B7280] uppercase tracking-[0.1em] font-medium">{label}</span>
+      <span className="text-xs text-[#6B7280] uppercase tracking-[0.1em] font-medium">{label}</span>
       <span className={`text-sm text-gray-200 ${mono ? 'font-mono tabular-nums' : ''}`}>
         {value}
       </span>

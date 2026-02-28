@@ -90,7 +90,7 @@ function McpLinkPageInner() {
           >
             PROPHET
           </h1>
-          <p className="text-[11px] text-[#3D4350] uppercase tracking-[0.3em] font-semibold">
+          <p className="text-xs text-[#6B7280] uppercase tracking-[0.3em] font-semibold">
             Link Claude
           </p>
         </div>
@@ -98,7 +98,7 @@ function McpLinkPageInner() {
         <div className="rounded border border-[#1C2030] bg-[#111318] p-8">
           {state === 'no-port' && (
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] mb-4 font-semibold">
+              <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-4 font-semibold">
                 Invalid Link
               </div>
               <p className="text-sm text-[#6B7280]">
@@ -109,7 +109,7 @@ function McpLinkPageInner() {
 
           {state === 'needs-login' && (
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] mb-5 font-semibold">
+              <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-5 font-semibold">
                 Sign In to Link
               </div>
               <p className="text-sm text-[#6B7280] mb-6">
@@ -126,7 +126,7 @@ function McpLinkPageInner() {
 
           {state === 'linking' && (
             <div className="text-center">
-              <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] mb-4 font-semibold">
+              <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-4 font-semibold">
                 Connecting
               </div>
               <div className="flex items-center justify-center gap-3 text-sm text-[#6B7280]">
@@ -138,7 +138,7 @@ function McpLinkPageInner() {
 
           {state === 'success' && (
             <div className="text-center">
-              <div className="text-[11px] text-[#00D4FF] uppercase tracking-[0.15em] mb-4 font-semibold">
+              <div className="text-xs text-[#00D4FF] uppercase tracking-[0.15em] mb-4 font-semibold">
                 Connected
               </div>
               <p className="text-sm text-[#E0E2E9] mb-2">
@@ -152,7 +152,7 @@ function McpLinkPageInner() {
 
           {state === 'error' && (
             <div className="text-center">
-              <div className="text-[11px] text-red-400 uppercase tracking-[0.15em] mb-4 font-semibold">
+              <div className="text-xs text-red-400 uppercase tracking-[0.15em] mb-4 font-semibold">
                 Error
               </div>
               <div className="text-red-400 bg-red-950/30 border border-red-900/50 rounded p-4 text-sm">

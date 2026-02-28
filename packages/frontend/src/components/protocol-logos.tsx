@@ -56,7 +56,7 @@ export function ProtocolRoute({ from, to, size = 16 }: { from: string; to: strin
   return (
     <span className="inline-flex items-center gap-1">
       <ProtocolLogo name={from} size={size} />
-      <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="text-[#3D4350] shrink-0">
+      <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="text-[#6B7280] shrink-0">
         <path d="M6 1l3 3-3 3M0 4h8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <ProtocolLogo name={to} size={size} />

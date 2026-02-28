@@ -48,7 +48,7 @@ function useCopy() {
 function SectionLine({ label, right }: { label: string; right?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 mb-4">
-      <span className="text-[11px] text-[#4A5060] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
+      <span className="text-xs text-[#4A5060] uppercase tracking-[0.15em] font-semibold shrink-0">{label}</span>
       <div className="flex-1 h-px bg-[#1C2030]" />
       {right}
     </div>
@@ -87,7 +87,7 @@ const STATUS_CLS: Record<string, string> = {
 function Badge({ status }: { status: string }) {
   const cls = STATUS_CLS[status.toUpperCase()] || STATUS_CLS.CLOSED
   return (
-    <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-mono font-semibold uppercase tracking-wider border ${cls}`}>
+    <span className={`inline-block text-xs px-2 py-0.5 rounded font-mono font-semibold uppercase tracking-wider border ${cls}`}>
       {status}
     </span>
   )
@@ -234,7 +234,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-[11px] font-semibold text-[#4A5060] uppercase tracking-[0.2em] mb-6">Dashboard</h1>
+      <h1 className="text-xs font-semibold text-[#4A5060] uppercase tracking-[0.2em] mb-6">Dashboard</h1>
 
       {isLoading ? <DashboardSkeleton /> : (
         <div className="space-y-5">
@@ -308,7 +308,7 @@ export default function DashboardPage() {
 
             {/* Balance */}
             <div className="rounded-xl border border-[#1C2030] bg-[#111318] p-5">
-              <div className="text-[11px] text-[#4A5060] uppercase tracking-[0.15em] font-semibold mb-3">Balance</div>
+              <div className="text-xs text-[#4A5060] uppercase tracking-[0.15em] font-semibold mb-3">Balance</div>
               <div className="text-3xl font-mono font-bold tabular-nums text-white leading-none tracking-tight">
                 {formatUSD(balance)}
               </div>
@@ -322,7 +322,7 @@ export default function DashboardPage() {
 
             {/* P&L */}
             <div className="rounded-xl border border-[#1C2030] bg-[#111318] p-5">
-              <div className="text-[11px] text-[#4A5060] uppercase tracking-[0.15em] font-semibold mb-3">Total P&L</div>
+              <div className="text-xs text-[#4A5060] uppercase tracking-[0.15em] font-semibold mb-3">Total P&L</div>
               <div
                 className={`text-3xl font-mono font-bold tabular-nums leading-none tracking-tight ${totalPnl >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}
                 style={totalPnl > 0 ? { textShadow: '0 0 30px rgba(34, 197, 94, 0.15)' } : totalPnl < 0 ? { textShadow: '0 0 30px rgba(239, 68, 68, 0.15)' } : undefined}
@@ -339,7 +339,7 @@ export default function DashboardPage() {
 
             {/* Wallet */}
             <div className="rounded-xl border border-[#1C2030] bg-[#111318] p-5">
-              <div className="text-[11px] text-[#4A5060] uppercase tracking-[0.15em] font-semibold mb-3">Wallet</div>
+              <div className="text-xs text-[#4A5060] uppercase tracking-[0.15em] font-semibold mb-3">Wallet</div>
               {walletAddr ? (
                 <>
                   <div className="flex items-center gap-2 mb-4">
@@ -369,21 +369,21 @@ export default function DashboardPage() {
                       href={`https://bscscan.com/address/${walletAddr}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-[#4A5060] hover:text-[#9CA3AF] hover:bg-white/[0.04] border border-[#1C2030] transition-all"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-[#4A5060] hover:text-[#9CA3AF] hover:bg-white/[0.04] border border-[#1C2030] transition-all"
                     >
                       <IconExternal size={12} />
                       Explorer
                     </a>
                     <button
                       onClick={() => fundWallet({ address: walletAddr, options: { chain: bsc } })}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-[#4A5060] hover:text-[#00D4FF] hover:bg-[#00D4FF]/[0.04] border border-[#1C2030] transition-all"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-[#4A5060] hover:text-[#00D4FF] hover:bg-[#00D4FF]/[0.04] border border-[#1C2030] transition-all"
                     >
                       <IconWallet size={12} />
                       Fund
                     </button>
                     <button
                       onClick={() => exportWallet({ address: walletAddr })}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-[#4A5060] hover:text-[#9CA3AF] hover:bg-white/[0.04] border border-[#1C2030] transition-all"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-[#4A5060] hover:text-[#9CA3AF] hover:bg-white/[0.04] border border-[#1C2030] transition-all"
                     >
                       <IconKey size={12} />
                       Export
@@ -391,7 +391,7 @@ export default function DashboardPage() {
                   </div>
                 </>
               ) : (
-                <div className="text-sm text-[#3D4350] font-mono">Loading...</div>
+                <div className="text-sm text-[#6B7280] font-mono">Loading...</div>
               )}
             </div>
           </div>
@@ -399,19 +399,19 @@ export default function DashboardPage() {
           {/* ── Quick Stats ── */}
           <div className="grid grid-cols-3 gap-3 animate-in" style={{ '--stagger': 2 } as React.CSSProperties}>
             <div className="rounded-lg border border-[#1C2030] bg-[#0E1015] px-4 py-3">
-              <div className="text-[10px] text-[#3D4350] uppercase tracking-[0.15em] font-medium mb-1">Quotes</div>
+              <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-medium mb-1">Quotes</div>
               <div className="text-lg font-mono font-bold tabular-nums text-[#C8CBD4]">
                 {marketsData?.quoteCount ?? 0}
               </div>
             </div>
             <div className="rounded-lg border border-[#1C2030] bg-[#0E1015] px-4 py-3">
-              <div className="text-[10px] text-[#3D4350] uppercase tracking-[0.15em] font-medium mb-1">Opportunities</div>
+              <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-medium mb-1">Opportunities</div>
               <div className="text-lg font-mono font-bold tabular-nums text-[#C8CBD4]">
                 {marketsData?.opportunities?.length ?? 0}
               </div>
             </div>
             <div className="rounded-lg border border-[#1C2030] bg-[#0E1015] px-4 py-3">
-              <div className="text-[10px] text-[#3D4350] uppercase tracking-[0.15em] font-medium mb-1">Protocols</div>
+              <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] font-medium mb-1">Protocols</div>
               <div className="text-lg font-mono font-bold tabular-nums text-[#C8CBD4]">3</div>
             </div>
           </div>
@@ -436,14 +436,14 @@ export default function DashboardPage() {
 
             {topOpps.length === 0 ? (
               <div className="py-10 text-center">
-                <div className="text-sm font-mono text-[#3D4350]">NO ACTIVE SPREADS</div>
-                <div className="text-xs text-[#262D3D] mt-1.5">Waiting for scanner to find opportunities</div>
+                <div className="text-sm font-mono text-[#6B7280]">NO ACTIVE SPREADS</div>
+                <div className="text-xs text-[#3D4350] mt-1.5">Waiting for scanner to find opportunities</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-[10px] text-[#3D4350] uppercase tracking-[0.12em]">
+                    <tr className="text-xs text-[#6B7280] uppercase tracking-[0.12em]">
                       <th className="pb-2.5 pl-1 text-left font-semibold w-7">#</th>
                       <th className="pb-2.5 text-left font-semibold">Market</th>
                       <th className="pb-2.5 text-left font-semibold">Platforms</th>
@@ -466,7 +466,7 @@ export default function DashboardPage() {
                           `}
                           onClick={() => router.push(`/markets?q=${marketQuery}`)}
                         >
-                          <td className="py-3 pl-1 font-mono text-xs text-[#3D4350] font-medium">{i + 1}</td>
+                          <td className="py-3 pl-1 font-mono text-xs text-[#6B7280] font-medium">{i + 1}</td>
                           <td className="py-3 pr-4">
                             <div className="flex items-center gap-3">
                               <MarketThumb src={opp.image} title={opp.title} size={32} />
@@ -522,14 +522,14 @@ export default function DashboardPage() {
 
             {trades.length === 0 ? (
               <div className="py-10 text-center">
-                <div className="text-sm font-mono text-[#3D4350]">AWAITING EXECUTION</div>
-                <div className="text-xs text-[#262D3D] mt-1.5">Trades appear after agent executes opportunities</div>
+                <div className="text-sm font-mono text-[#6B7280]">AWAITING EXECUTION</div>
+                <div className="text-xs text-[#3D4350] mt-1.5">Trades appear after agent executes opportunities</div>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-[10px] text-[#3D4350] uppercase tracking-[0.12em]">
+                    <tr className="text-xs text-[#6B7280] uppercase tracking-[0.12em]">
                       <th className="pb-2.5 text-left font-semibold">Market</th>
                       <th className="pb-2.5 text-left font-semibold">Status</th>
                       <th className="pb-2.5 text-right font-semibold">Cost</th>
@@ -571,7 +571,7 @@ export default function DashboardPage() {
                                 {t.pnl >= 0 ? '+' : ''}{formatUSD(t.pnl)}
                               </span>
                             ) : (
-                              <span className="text-[#3D4350]">&mdash;</span>
+                              <span className="text-[#6B7280]">&mdash;</span>
                             )}
                           </td>
                           <td className="py-3 text-right font-mono text-xs text-[#4A5060]" title={time.full}>
@@ -587,7 +587,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Footer ── */}
-          <div className="flex items-center gap-2 text-[11px] font-mono text-[#3D4350] pt-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-[#6B7280] pt-2">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00D4FF]/30 pulse-dot" />
             <span>{marketsData?.quoteCount ?? 0} quotes</span>
             <span className="text-[#1C2030]">&middot;</span>

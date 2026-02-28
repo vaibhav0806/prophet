@@ -14,7 +14,7 @@
   --border-bright: #262D3D;
   --text: #E0E2E9;
   --text-muted: #6B7280;
-  --text-dim: #3D4350;
+  --text-dim: #4B5563;
   --green: #22C55E;
   --red: #EF4444;
   --blue: #3B82F6;
@@ -346,6 +346,17 @@ body::before {
   pointer-events: none;
 }
 
+/* Hide number spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 /* Range slider — cyan thumb */
 input[type="range"] {
   -webkit-appearance: none;
@@ -353,7 +364,14 @@ input[type="range"] {
   background: transparent;
 }
 
-input[type="range"]::-webkit-slider-track {
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: #191C24;
+  border-radius: 3px;
+  border: 1px solid #262D3D;
+}
+
+input[type="range"]::-moz-range-track {
   height: 6px;
   background: #191C24;
   border-radius: 3px;
@@ -371,6 +389,15 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: pointer;
   margin-top: -7px;
   transition: box-shadow 0.2s ease;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #00D4FF;
+  border: 2px solid #0099CC;
+  cursor: pointer;
 }
 
 input[type="range"]:hover::-webkit-slider-thumb {

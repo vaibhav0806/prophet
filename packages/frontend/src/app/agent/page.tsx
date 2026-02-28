@@ -42,7 +42,7 @@ function SkeletonAgent() {
 function StatCard({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="bg-gray-800/30 rounded-lg p-4">
-      <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5">{label}</div>
+      <div className="text-xs text-gray-500 uppercase tracking-wide mb-1.5">{label}</div>
       <div>{children}</div>
     </div>
   )
@@ -205,7 +205,7 @@ export default function AgentPage() {
               <h2 className="text-base font-semibold mb-5">Configuration</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div>
-                  <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">
+                  <label className="block text-xs text-gray-500 uppercase tracking-wide mb-2">
                     Min Spread
                     <span className="text-gray-600 ml-1 normal-case tracking-normal">(bps)</span>
                   </label>
@@ -219,7 +219,7 @@ export default function AgentPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">
+                  <label className="block text-xs text-gray-500 uppercase tracking-wide mb-2">
                     Max Position Size
                     <span className="text-gray-600 ml-1 normal-case tracking-normal">(USDT)</span>
                   </label>
@@ -232,7 +232,7 @@ export default function AgentPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-gray-500 uppercase tracking-wide mb-2">
+                  <label className="block text-xs text-gray-500 uppercase tracking-wide mb-2">
                     Scan Interval
                     <span className="text-gray-600 ml-1 normal-case tracking-normal">(ms)</span>
                   </label>

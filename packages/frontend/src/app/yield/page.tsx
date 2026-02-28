@@ -118,7 +118,7 @@ export default function YieldPage() {
 
         {/* Vault Balance */}
         <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5 mb-6">
-          <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Vault Balance</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Vault Balance</div>
           <div className="text-2xl font-mono font-bold text-emerald-400 tabular-nums">
             {formatOnchain(vaultBalance as bigint | undefined)}
             <span className="text-sm text-gray-500 font-normal ml-1">USDT</span>
@@ -172,7 +172,7 @@ export default function YieldPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-800/80 text-[11px] uppercase tracking-wider text-gray-500">
+                    <tr className="border-b border-gray-800/80 text-xs uppercase tracking-wider text-gray-500">
                       <th className="px-5 py-3 text-left font-medium">Strategy</th>
                       <th className="px-5 py-3 text-right font-medium">Total Cost</th>
                       <th className="px-5 py-3 text-right font-medium">Positions</th>
@@ -205,19 +205,19 @@ export default function YieldPage() {
               <h2 className="text-base font-semibold mb-4">Returns Summary</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
                 <div>
-                  <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5">Total Invested</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wide mb-1.5">Total Invested</div>
                   <div className="font-mono font-medium tabular-nums">
                     {formatNumber(stats.totalDeployed, 4)} <span className="text-gray-500">USDT</span>
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5">Realized P&L</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wide mb-1.5">Realized P&L</div>
                   <div className={`font-mono font-medium tabular-nums ${stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {stats.totalPnl >= 0 ? '+' : ''}{formatNumber(stats.totalPnl, 4)} <span className="opacity-60">USDT</span>
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5">Return on Capital</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wide mb-1.5">Return on Capital</div>
                   <div className={`font-mono font-medium tabular-nums ${stats.weightedAvgYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {stats.weightedAvgYield >= 0 ? '+' : ''}{stats.weightedAvgYield.toFixed(2)}%
                   </div>

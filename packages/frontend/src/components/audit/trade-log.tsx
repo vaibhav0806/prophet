@@ -34,7 +34,7 @@ export function TradeLog({ positions, actionFilter }: TradeLogProps) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-800/80 text-[11px] uppercase tracking-wider text-gray-500">
+            <tr className="border-b border-gray-800/80 text-xs uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3 text-left font-medium">Time</th>
               <th className="px-4 py-3 text-left font-medium">Action</th>
               <th className="px-4 py-3 text-left font-medium">Position</th>
@@ -103,7 +103,7 @@ function TradeRow({
         <td className="px-4 py-3.5">
           <span
             className={`
-              inline-block px-2 py-0.5 rounded text-[11px] font-medium border
+              inline-block px-2 py-0.5 rounded text-xs font-medium border
               ${pos.closed
                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                 : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
@@ -148,27 +148,27 @@ function TradeRow({
             <div className="px-5 py-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-4 text-xs">
                 <div>
-                  <div className="text-[11px] text-gray-600 uppercase tracking-wide mb-1">Market A</div>
+                  <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Market A</div>
                   <div className="font-mono text-gray-400">{truncateAddress(pos.marketIdA)}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-600 uppercase tracking-wide mb-1">Market B</div>
+                  <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Market B</div>
                   <div className="font-mono text-gray-400">{truncateAddress(pos.marketIdB)}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-600 uppercase tracking-wide mb-1">Opened At</div>
+                  <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Opened At</div>
                   <div className="text-gray-400">{full}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-600 uppercase tracking-wide mb-1">Shares A</div>
+                  <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Shares A</div>
                   <div className="font-mono text-gray-300 tabular-nums">{formatValue(pos.sharesA, 6)}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-600 uppercase tracking-wide mb-1">Shares B</div>
+                  <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Shares B</div>
                   <div className="font-mono text-gray-300 tabular-nums">{formatValue(pos.sharesB, 6)}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-600 uppercase tracking-wide mb-1">Explorer</div>
+                  <div className="text-xs text-gray-600 uppercase tracking-wide mb-1">Explorer</div>
                   <a
                     href={`https://bscscan.com/address/${pos.marketIdA.slice(0, 42)}`}
                     target="_blank"

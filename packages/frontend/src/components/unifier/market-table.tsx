@@ -79,7 +79,7 @@ export function MarketTable({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-800/80 text-[11px] uppercase tracking-wider text-gray-500">
+            <tr className="border-b border-gray-800/80 text-xs uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3 text-left font-medium">Market</th>
               <th className="px-4 py-3 text-left font-medium">Protocol A</th>
               <th className="px-4 py-3 text-left font-medium">Protocol B</th>
@@ -117,11 +117,11 @@ export function MarketTable({
                   </td>
                   <td className="px-4 py-3.5 text-right">
                     {isMatched ? (
-                      <span className="inline-block px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                         Matched
                       </span>
                     ) : (
-                      <span className="inline-block px-2 py-0.5 rounded text-[11px] font-medium bg-gray-700/30 text-gray-500 border border-gray-600/30">
+                      <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-700/30 text-gray-500 border border-gray-600/30">
                         Single
                       </span>
                     )}

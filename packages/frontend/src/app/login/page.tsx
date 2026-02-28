@@ -73,14 +73,14 @@ export default function LoginPage() {
           >
             PROPHET
           </h1>
-          <p className="text-[11px] text-[#3D4350] uppercase tracking-[0.3em] font-semibold">
+          <p className="text-xs text-[#6B7280] uppercase tracking-[0.3em] font-semibold">
             Prediction Market Arbitrage
           </p>
         </div>
 
         {/* Card */}
         <div className="rounded border border-[#1C2030] bg-[#111318] p-8 animate-in" style={{ '--stagger': 1 } as React.CSSProperties}>
-          <div className="text-[11px] text-[#3D4350] uppercase tracking-[0.15em] mb-5 font-semibold">
+          <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-5 font-semibold">
             Sign In
           </div>
 
@@ -112,7 +112,7 @@ export default function LoginPage() {
         </div>
 
         {/* Tagline */}
-        <p className="text-center text-[11px] text-[#3D4350] mt-8 animate-in font-medium" style={{ '--stagger': 2, letterSpacing: '0.25em' } as React.CSSProperties}>
+        <p className="text-center text-xs text-[#6B7280] mt-8 animate-in font-medium" style={{ '--stagger': 2, letterSpacing: '0.25em' } as React.CSSProperties}>
           Automated prediction market arbitrage
         </p>
       </div>
