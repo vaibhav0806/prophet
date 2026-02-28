@@ -234,7 +234,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#4A5060] uppercase tracking-[0.2em] mb-6">Dashboard</h1>
+      <h1 className="text-lg font-bold text-white mb-6" style={{ fontFamily: 'var(--font-serif), Georgia, serif' }}>Dashboard</h1>
 
       {isLoading ? <DashboardSkeleton /> : (
         <div className="space-y-5">

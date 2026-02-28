@@ -1,63 +1,68 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useRef, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { useAuth } from '@/hooks/use-auth'
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
 
-type LinkState = 'no-port' | 'needs-login' | 'linking' | 'success' | 'error'
+type LinkState = "no-port" | "needs-login" | "linking" | "success" | "error";
 
 export default function McpLinkPage() {
   return (
     <Suspense>
       <McpLinkPageInner />
     </Suspense>
-  )
+  );
 }
 
 function McpLinkPageInner() {
-  const searchParams = useSearchParams()
-  const port = searchParams.get('port')
-  const { login, isAuthenticated, isReady, address } = useAuth()
-  const [state, setState] = useState<LinkState>('linking')
-  const [errorMsg, setErrorMsg] = useState('')
-  const linkedRef = useRef(false)
+  const searchParams = useSearchParams();
+  const port = searchParams.get("port");
+  const { login, isAuthenticated, isReady, address } = useAuth();
+  const [state, setState] = useState<LinkState>("linking");
+  const [errorMsg, setErrorMsg] = useState("");
+  const linkedRef = useRef(false);
 
   useEffect(() => {
     if (!port) {
-      setState('no-port')
-      return
+      setState("no-port");
+      return;
     }
-    if (!isReady) return
+    if (!isReady) return;
     if (!isAuthenticated || !address) {
-      setState('needs-login')
-      return
+      setState("needs-login");
+      return;
     }
 
-    if (linkedRef.current) return
-    linkedRef.current = true
-    setState('linking')
-
-    ;(async () => {
+    if (linkedRef.current) return;
+    linkedRef.current = true;
+    setState("linking");
+    (async () => {
       try {
         const res = await fetch(`http://127.0.0.1:${port}/callback`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ walletAddress: address }),
-        })
+        });
 
         if (!res.ok) {
-          const body = await res.json().catch(() => ({ error: res.statusText }))
-          throw new Error(body.error || `Failed: ${res.status}`)
+          const body = await res
+            .json()
+            .catch(() => ({ error: res.statusText }));
+          throw new Error(body.error || `Failed: ${res.status}`);
         }
 
-        setState('success')
+        setState("success");
       } catch (err) {
-        setState('error')
-        setErrorMsg(err instanceof Error ? err.message : 'Failed to connect to MCP server')
-        linkedRef.current = false
+        setState("error");
+        setErrorMsg(
+          err instanceof Error
+            ? err.message
+            : "Failed to connect to MCP server",
+        );
+        linkedRef.current = false;
       }
-    })()
-  }, [port, isReady, isAuthenticated, address])
+    })();
+  }, [port, isReady, isAuthenticated, address]);
 
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
@@ -66,7 +71,8 @@ function McpLinkPageInner() {
         <div
           className="absolute inset-0"
           style={{
-            background: 'radial-gradient(ellipse 50% 40% at 50% 35%, rgba(0,212,255,0.06) 0%, transparent 70%)',
+            background:
+              "radial-gradient(ellipse 50% 40% at 50% 35%, rgba(0,212,255,0.06) 0%, transparent 70%)",
           }}
         />
         <div
@@ -76,7 +82,7 @@ function McpLinkPageInner() {
               linear-gradient(rgba(0,212,255,0.15) 1px, transparent 1px),
               linear-gradient(90deg, rgba(0,212,255,0.15) 1px, transparent 1px)
             `,
-            backgroundSize: '80px 80px',
+            backgroundSize: "80px 80px",
           }}
         />
       </div>
@@ -85,29 +91,31 @@ function McpLinkPageInner() {
       <div className="relative z-10 w-full max-w-sm px-6">
         <div className="text-center mb-12">
           <h1
-            className="text-[42px] font-bold uppercase mb-3 text-white"
-            style={{ textShadow: '0 0 30px rgba(0, 212, 255, 0.25)', letterSpacing: '0.02em' }}
+            className="text-[42px] font-bold mb-3 text-white"
+            style={{
+              fontFamily: "var(--font-serif), Georgia, serif",
+              textShadow: "0 0 30px rgba(0, 212, 255, 0.25)",
+              letterSpacing: "0.02em",
+            }}
           >
-            PROPHET
+            Prophet
           </h1>
-          <p className="text-xs text-[#6B7280] uppercase tracking-[0.3em] font-semibold">
-            Link Claude
-          </p>
         </div>
 
         <div className="rounded border border-[#1C2030] bg-[#111318] p-8">
-          {state === 'no-port' && (
+          {state === "no-port" && (
             <div className="text-center">
               <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-4 font-semibold">
                 Invalid Link
               </div>
               <p className="text-sm text-[#6B7280]">
-                This link is missing the required parameters. Use the login tool from Claude to start the flow.
+                This link is missing the required parameters. Use the login tool
+                from Claude to start the flow.
               </p>
             </div>
           )}
 
-          {state === 'needs-login' && (
+          {state === "needs-login" && (
             <div className="text-center">
               <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-5 font-semibold">
                 Sign In to Link
@@ -124,7 +132,7 @@ function McpLinkPageInner() {
             </div>
           )}
 
-          {state === 'linking' && (
+          {state === "linking" && (
             <div className="text-center">
               <div className="text-xs text-[#6B7280] uppercase tracking-[0.15em] mb-4 font-semibold">
                 Connecting
@@ -136,7 +144,7 @@ function McpLinkPageInner() {
             </div>
           )}
 
-          {state === 'success' && (
+          {state === "success" && (
             <div className="text-center">
               <div className="text-xs text-[#00D4FF] uppercase tracking-[0.15em] mb-4 font-semibold">
                 Connected
@@ -150,7 +158,7 @@ function McpLinkPageInner() {
             </div>
           )}
 
-          {state === 'error' && (
+          {state === "error" && (
             <div className="text-center">
               <div className="text-xs text-red-400 uppercase tracking-[0.15em] mb-4 font-semibold">
                 Error
@@ -163,5 +171,5 @@ function McpLinkPageInner() {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -92,10 +92,10 @@ function LinkTelegramPageInner() {
       <div className="relative z-10 w-full max-w-sm px-6">
         <div className="text-center mb-12">
           <h1
-            className="text-[42px] font-bold uppercase mb-3 text-white"
-            style={{ textShadow: '0 0 30px rgba(0, 212, 255, 0.25)', letterSpacing: '0.02em' }}
+            className="text-[42px] font-bold mb-3 text-white"
+            style={{ fontFamily: 'var(--font-serif), Georgia, serif', textShadow: '0 0 30px rgba(0, 212, 255, 0.25)', letterSpacing: '0.02em' }}
           >
-            PROPHET
+            Prophet
           </h1>
           <p className="text-xs text-[#6B7280] uppercase tracking-[0.3em] font-semibold">
             Link Telegram

@@ -418,7 +418,7 @@ function MarketsPageInner() {
 
   return (
     <div className="p-5 lg:p-6 page-enter">
-      <h1 className="text-xs font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Opportunities</h1>
+      <h1 className="text-lg font-bold text-white mb-5" style={{ fontFamily: 'var(--font-serif), Georgia, serif' }}>Opportunities</h1>
 
       {/* Metrics */}
       {data && sorted.length > 0 && (

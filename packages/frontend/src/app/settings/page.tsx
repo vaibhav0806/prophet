@@ -268,7 +268,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-5 lg:p-6 page-enter max-w-2xl">
-      <h1 className="text-sm font-semibold text-[#6B7280] uppercase tracking-[0.15em] mb-5">Settings</h1>
+      <h1 className="text-lg font-bold text-white mb-5" style={{ fontFamily: 'var(--font-serif), Georgia, serif' }}>Settings</h1>
 
       {isLoading && <SkeletonSettings />}
 

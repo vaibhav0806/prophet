@@ -99,8 +99,8 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { isAuthenticated, isReady, logout } = useAuth();
 
-  // Don't show sidebar on login/onboarding
-  if (pathname === "/login" || pathname?.startsWith("/onboarding")) {
+  // Don't show sidebar on landing/login/onboarding/linking pages
+  if (pathname === "/" || pathname === "/login" || pathname?.startsWith("/onboarding") || pathname === "/mcp-link" || pathname === "/link-telegram") {
     return null;
   }
 
@@ -142,7 +142,7 @@ export function Sidebar() {
       >
         {/* Logo */}
         <div className="px-5 pt-6 pb-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <span
               className="text-[28px] font-bold text-white tracking-wide"
               style={{

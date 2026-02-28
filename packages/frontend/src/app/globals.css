@@ -21,6 +21,10 @@
   --amber: #F59E0B;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background: var(--bg);
   color: var(--text);

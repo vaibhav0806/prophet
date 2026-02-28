@@ -110,10 +110,10 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         <h1 className="text-3xl font-bold tracking-tight text-white">
           Welcome to{' '}
           <span
-            className="inline-block font-bold uppercase text-white"
-            style={{ textShadow: '0 0 20px rgba(0, 212, 255, 0.3)' }}
+            className="inline-block font-bold text-white"
+            style={{ fontFamily: 'var(--font-serif), Georgia, serif', textShadow: '0 0 20px rgba(0, 212, 255, 0.3)' }}
           >
-            PROPHET
+            Prophet
           </span>
         </h1>
       </div>
