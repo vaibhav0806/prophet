@@ -25,3 +25,8 @@ packages/frontend/README.md
 .DS_Store
 
 6-month-plan.txt
+
+# Gas Town (added by gt)
+.runtime/
+.claude/commands/
+.logs/
